@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws://wails.localhost wss://wails.localhost; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'">
+  <title>GoHarness Desktop</title>
+  <link rel="stylesheet" href="/main.css">
+  <script type="module" src="/main.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="mark" aria-hidden="true">G</span><div><strong>GoHarness</strong><small>Desktop</small></div></div>
+    <div class="top-actions">
+      <span id="versions" class="muted"></span>
+      <button id="updates" class="quiet">Updates</button>
+      <button id="provider" class="quiet">Provider settings</button>
+    </div>
+  </header>
+  <div class="workspace">
+    <aside class="projects" aria-label="Projects">
+      <div class="section-title">Projects</div>
+      <button id="pick" class="primary project-button">Open project…</button>
+      <nav id="projects" aria-label="Recent projects"></nav>
+      <section id="project-sessions" hidden>
+        <div class="section-title">Sessions <button id="create" class="quiet">New</button></div>
+        <div id="existing"></div>
+      </section>
+    </aside>
+    <main>
+      <nav id="tabs" class="tabs" aria-label="Open sessions"></nav>
+      <div id="alert" role="status" hidden></div>
+      <section id="empty" class="empty">
+        <div>
+          <h1>Project workspace</h1>
+          <p>Open a folder to start a session or return to a recent project.</p>
+          <button id="empty-pick" class="primary">Choose folder…</button>
+        </div>
+      </section>
+      <section id="session" class="session" hidden>
+        <header class="session-header">
+          <div><h1 id="session-name"></h1><p id="session-path"></p></div>
+          <div id="run-status" class="status"></div>
+        </header>
+        <div class="session-body">
+          <div class="conversation">
+            <div id="messages" class="messages" role="log" aria-label="Conversation"></div>
+            <section id="challenge" class="challenge" aria-label="Engine input" hidden></section>
+            <form id="composer" class="composer">
+              <label for="prompt" class="sr-only">Message</label>
+              <textarea id="prompt" rows="2" placeholder="Message GoHarness"></textarea>
+              <div class="compose-actions">
+                <span class="muted">⌘ / Ctrl + Enter to send</span>
+                <button id="cancel" type="button" class="quiet" hidden>Cancel run</button>
+                <button id="send" type="submit" class="primary">Send</button>
+              </div>
+            </form>
+          </div>
+          <aside class="activity" aria-label="Child-agent activity">
+            <div class="section-title">Child agents</div>
+            <div id="agents"></div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="provider-dialog">
+    <div class="dialog-heading"><h2>Provider settings</h2><button id="close-provider" class="quiet">Close</button></div>
+    <p id="provider-status"></p>
+    <div class="provider-oauth">
+      <button id="login" class="primary">Continue with ChatGPT</button>
+      <button id="switch" class="quiet">Switch account</button>
+      <button id="cancel-login" class="quiet" hidden>Cancel sign-in</button>
+      <label id="auth-label" hidden>Browser authorization URL<input id="auth-url" readonly></label>
+    </div>
+    <form id="provider-form" class="provider-form">
+      <h3>API or local provider</h3>
+      <label>Protocol
+        <select id="protocol">
+          <option value="chat_completions">OpenAI-compatible Chat Completions</option>
+          <option value="openai_responses">OpenAI Responses</option>
+          <option value="anthropic_messages">Anthropic Messages</option>
+        </select>
+      </label>
+      <label>Base URL<input id="endpoint" required type="url" placeholder="https://api.example.com/v1"></label>
+      <label>Model ID<input id="model" required placeholder="Model identifier from your provider"></label>
+      <label>Context window (tokens)<input id="window" type="number" min="1" max="10000000" value="32768"></label>
+      <label>API key (optional for local providers)<input id="api-key" type="password" autocomplete="off"></label>
+      <div class="button-row"><button type="submit" class="primary">Save provider</button><button id="engine-settings" type="button" class="quiet">Use GoHarness settings</button></div>
+    </form>
+  </dialog>
+  <dialog id="update-dialog">
+    <div class="dialog-heading"><h2>Updates</h2><button id="close-update" class="quiet">Close</button></div>
+    <p id="update-status" role="status"></p>
+    <div class="button-row"><button id="stage-update" class="primary">Check and stage update</button><button id="apply-update" class="primary" hidden>Restart to update</button></div>
+  </dialog>
+</body>
+</html>

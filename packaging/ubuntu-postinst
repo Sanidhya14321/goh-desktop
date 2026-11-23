@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+if [ "$1" = configure ] && [ -r /sys/kernel/security/apparmor/profiles ]; then
+    apparmor_parser -r -T /etc/apparmor.d/@PACKAGE@
+fi

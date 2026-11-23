@@ -1,0 +1,68 @@
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -42,13 +42,18 @@
+         env:
+           GH_TOKEN: ${{ github.token }}
+         run: |
+           files=$(find dist -maxdepth 1 -type f | sort)
+-          gh release create "$GITHUB_REF_NAME" $files --title "GoHarness ${GITHUB_REF_NAME#v}" --notes-file notes.md --latest --verify-tag
++          if [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
++            channel=(--latest)
++          else
++            channel=(--prerelease --latest=false)
++          fi
++          gh release create "$GITHUB_REF_NAME" $files --title "GoHarness ${GITHUB_REF_NAME#v}" --notes-file notes.md "${channel[@]}" --verify-tag
+       - name: Package manager manifests
+         # Stable versions only, so `brew upgrade` and `scoop update` never
+         # move users to a release candidate.
+-        if: ${{ !contains(github.ref_name, '-') }}
++        if: ${{ !contains(github.ref_name, '-') && !contains(github.ref_name, '+') }}
+         env:
+           GH_TOKEN: ${{ github.token }}
+         run: |
+           git fetch origin main
+@@ -59,4 +64,43 @@
+           git add Formula/goh.rb bucket/goh.json
+           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+             commit -m "packaging: goh ${GITHUB_REF_NAME#v}"
+           git push origin packaging:main
++  dispatch-desktop:
++    needs: publish
++    if: ${{ vars.DESKTOP_DISPATCH_ENABLED == 'true' }}
++    runs-on: ubuntu-latest
++    permissions:
++      contents: read
++    steps:
++      - name: Confirm an exact compatible stable release
++        id: stable
++        env:
++          GH_TOKEN: ${{ github.token }}
++        run: |
++          if [[ ! "$GITHUB_REF_NAME" =~ ^v1\.(1|[2-9]|[1-9][0-9]+)\.(0|[1-9][0-9]*)$ ]]; then
++            exit 0
++          fi
++          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease,publishedAt \
++            | jq -e --arg tag "$GITHUB_REF_NAME" '.tagName == $tag and (.isDraft or .isPrerelease | not) and .publishedAt != null'
++          echo "ready=true" >> "$GITHUB_OUTPUT"
++      - name: Issue a desktop-repository installation token
++        if: steps.stable.outputs.ready == 'true'
++        id: desktop-token
++        uses: actions/create-github-app-token@v2
++        with:
++          app-id: ${{ vars.DESKTOP_RELEASE_APP_ID }}
++          private-key: ${{ secrets.DESKTOP_RELEASE_APP_PRIVATE_KEY }}
++          owner: ${{ vars.DESKTOP_REPO_OWNER }}
++          repositories: goh-desktop
++          permission-actions: write
++      - name: Dispatch the desktop stable release
++        if: steps.stable.outputs.ready == 'true'
++        env:
++          GH_TOKEN: ${{ steps.desktop-token.outputs.token }}
++          DESKTOP_OWNER: ${{ vars.DESKTOP_REPO_OWNER }}
++          DESKTOP_REF: ${{ vars.DESKTOP_RELEASE_BRANCH }}
++        run: |
++          : "${DESKTOP_OWNER:?}" "${DESKTOP_REF:?}"
++          jq -n --arg engine "$GITHUB_REF_NAME" --arg ref "$DESKTOP_REF" \
++            '{ref:$ref,inputs:{engine_tag:$engine,channel:"stable",dry_run:false}}' | \
++            gh api --method POST "repos/$DESKTOP_OWNER/goh-desktop/actions/workflows/release.yml/dispatches" --input -

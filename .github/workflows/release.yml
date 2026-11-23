@@ -1,0 +1,105 @@
+name: Desktop release
+on:
+  workflow_dispatch:
+    inputs:
+      engine_tag:
+        description: Exact upstream stable release tag (e.g. v1.1.0)
+        required: true
+        type: string
+      channel:
+        description: Desktop release channel
+        default: stable
+        type: choice
+        options: [stable, preview]
+      dry_run:
+        description: Build development assets and validate promotion without publishing
+        default: true
+        type: boolean
+permissions:
+  contents: read
+  attestations: read
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - name: Validate release inputs
+        id: plan
+        env:
+          ENGINE_TAG: ${{ inputs.engine_tag }}
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ inputs.channel }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          [[ "$ENGINE_TAG" =~ ^v1\.(1|[2-9]|[1-9][0-9]+)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$CHANNEL" == stable || "$CHANNEL" == preview ]]
+          if [[ "$DRY_RUN" != true ]]; then
+            [[ "$GITHUB_REF" == "refs/heads/$DEFAULT_BRANCH" ]]
+          fi
+          gh release view "$ENGINE_TAG" --repo Sanidhya14321/goh --json tagName,isDraft,isPrerelease,publishedAt \
+            | jq -e --arg tag "$ENGINE_TAG" '.tagName == $tag and (.isDraft or .isPrerelease | not) and .publishedAt != null'
+          printf 'version=0.1.%s\n' "$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+  package:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-15, target: darwin-universal }
+          - { runner: ubuntu-24.04, target: linux-amd64 }
+          - { runner: ubuntu-24.04-arm, target: linux-arm64 }
+          - { runner: windows-2025, target: windows-amd64 }
+          - { runner: windows-11-arm, target: windows-arm64 }
+    permissions:
+      contents: read
+      attestations: read
+      id-token: write
+    uses: ./.github/workflows/package.yml
+    with:
+      runner: ${{ matrix.runner }}
+      target: ${{ matrix.target }}
+      engine_tag: ${{ inputs.engine_tag }}
+      version: ${{ needs.plan.outputs.version }}
+      channel: ${{ inputs.channel }}
+      sign: ${{ !inputs.dry_run }}
+  publish:
+    needs: [plan, package]
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: goh-desktop-promotion
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    environment: ${{ inputs.dry_run && 'desktop-dry-run' || 'desktop-publish' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          path: native
+          pattern: native-*
+      - name: Assemble and promote the complete draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENGINE_TAG: ${{ inputs.engine_tag }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          CHANNEL: ${{ inputs.channel }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          DESKTOP_UPDATE_SEED: ${{ secrets.DESKTOP_UPDATE_SEED }}
+          DESKTOP_UPDATE_PUBLIC_KEY: ${{ vars.DESKTOP_UPDATE_PUBLIC_KEY }}
+        run: |
+          opts=()
+          if [[ "$DRY_RUN" != true ]]; then opts+=(--publish); fi
+          python3 scripts/release.py --artifacts native --output metadata --repo "$GITHUB_REPOSITORY" \
+            --commit "$GITHUB_SHA" --version "$VERSION" --engine-tag "$ENGINE_TAG" --channel "$CHANNEL" "${opts[@]}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-release-metadata
+          path: metadata/

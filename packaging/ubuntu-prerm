@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+if [ "$1" = remove ] && [ -r /sys/kernel/security/apparmor/profiles ]; then
+    if grep -q '^@PACKAGE@ (' /sys/kernel/security/apparmor/profiles; then
+        apparmor_parser -R /etc/apparmor.d/@PACKAGE@
+    fi
+fi

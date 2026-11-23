@@ -1,0 +1,35 @@
+name: Native build and smoke
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      engine_tag:
+        description: Exact published stable engine tag
+        default: v1.1.0
+        type: string
+permissions:
+  contents: read
+  attestations: read
+  id-token: write
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-15, target: darwin-universal }
+          - { runner: macos-15-intel, target: darwin-amd64 }
+          - { runner: ubuntu-24.04, target: linux-amd64 }
+          - { runner: ubuntu-24.04-arm, target: linux-arm64 }
+          - { runner: windows-2025, target: windows-amd64 }
+          - { runner: windows-11-arm, target: windows-arm64 }
+    uses: ./.github/workflows/package.yml
+    with:
+      runner: ${{ matrix.runner }}
+      target: ${{ matrix.target }}
+      engine_tag: ${{ inputs.engine_tag || 'v1.1.0' }}
+      channel: dev
+      version: 0.1.1
+      sign: false

@@ -1,0 +1,9 @@
+.cache/
+out/
+frontend/node_modules/
+frontend/dist/*
+!frontend/dist/.gitkeep
+*.log
+engine-windows*.bin
+
+__pycache__/
