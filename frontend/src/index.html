@@ -3,67 +3,128 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws://wails.localhost wss://wails.localhost; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws://wails.localhost wss://wails.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'">
   <title>GoHarness Desktop</title>
   <link rel="stylesheet" href="/main.css">
   <script type="module" src="/main.js"></script>
 </head>
 <body>
   <header class="top">
-    <div class="brand"><span class="mark" aria-hidden="true">G</span><div><strong>GoHarness</strong><small>Desktop</small></div></div>
+    <div class="brand"><img src="/brand.svg" alt="" width="30" height="30"><strong>GoHarness</strong><span>Desktop</span></div>
+    <button id="palette" class="palette-button" aria-haspopup="dialog"><span data-icon="search"></span> <span>Find a command or project</span><kbd id="palette-key"></kbd></button>
     <div class="top-actions">
-      <span id="versions" class="muted"></span>
-      <button id="updates" class="quiet">Updates</button>
-      <button id="provider" class="quiet">Provider settings</button>
+      <button id="sidebar-toggle" class="icon-button" title="Toggle projects" aria-label="Toggle projects"><span data-icon="sidebar"></span></button>
+      <button id="dock-toggle" class="icon-button" title="Toggle terminal" aria-label="Toggle terminal"><span data-icon="terminal"></span></button>
+      <button id="settings" class="icon-button" title="Workspace settings" aria-label="Workspace settings"><span data-icon="settings"></span></button>
     </div>
   </header>
-  <div class="workspace">
+  <div id="workspace" class="workspace">
     <aside class="projects" aria-label="Projects">
-      <div class="section-title">Projects</div>
-      <button id="pick" class="primary project-button">Open project…</button>
-      <nav id="projects" aria-label="Recent projects"></nav>
+      <div class="section-title"><span>Projects</span><button id="pick" class="icon-button" title="Open project folder" aria-label="Open project folder"><span data-icon="plus"></span></button></div>
+      <label class="project-search"><span data-icon="search"></span><input id="project-filter" placeholder="Filter projects" aria-label="Filter projects"></label>
+      <nav id="projects" aria-label="Open and recent projects"></nav>
       <section id="project-sessions" hidden>
-        <div class="section-title">Sessions <button id="create" class="quiet">New</button></div>
+        <div class="section-title"><span>Sessions</span><button id="create" class="icon-button" title="New session" aria-label="New session"><span data-icon="plus"></span></button></div>
         <div id="existing"></div>
       </section>
     </aside>
     <main>
-      <nav id="tabs" class="tabs" aria-label="Open sessions"></nav>
+      <div id="tab-bar" class="tab-bar" hidden>
+        <nav id="tabs" class="tabs" aria-label="Open sessions"></nav>
+        <button id="tab-new" class="icon-button" title="New session" aria-label="New session"><span data-icon="plus"></span></button>
+      </div>
       <div id="alert" role="status" hidden></div>
       <section id="empty" class="empty">
-        <div>
-          <h1>Project workspace</h1>
-          <p>Open a folder to start a session or return to a recent project.</p>
-          <button id="empty-pick" class="primary">Choose folder…</button>
+        <div class="welcome">
+          <img src="/brand.svg" width="48" height="48" alt="">
+          <h1 id="welcome-title">Open a project</h1>
+          <p id="welcome-copy">Choose a repository or folder to start an agent session or open a terminal.</p>
+          <div class="welcome-actions">
+            <button id="empty-pick" class="primary"><span data-icon="folder"></span> Open folder</button>
+            <button id="welcome-session" class="primary" hidden><span data-icon="plus"></span> New session</button>
+            <button id="welcome-terminal" hidden><span data-icon="terminal"></span> Open terminal</button>
+          </div>
         </div>
       </section>
       <section id="session" class="session" hidden>
         <header class="session-header">
-          <div><h1 id="session-name"></h1><p id="session-path"></p></div>
-          <div id="run-status" class="status"></div>
+          <div class="session-heading">
+            <span id="session-project" class="eyebrow"></span>
+            <h1 id="session-name"></h1>
+            <span id="session-path" class="session-path"></span>
+          </div>
+          <div class="session-tools">
+            <div id="run-status" class="status" role="status"></div>
+            <button id="rename-session" class="icon-button" title="Rename session" aria-label="Rename session"><span data-icon="edit"></span></button>
+            <button id="activity-toggle" class="icon-button" title="Toggle agent activity" aria-label="Toggle agent activity"><span data-icon="activity"></span></button>
+          </div>
         </header>
-        <div class="session-body">
+        <div id="session-body" class="session-body">
           <div class="conversation">
             <div id="messages" class="messages" role="log" aria-label="Conversation"></div>
             <section id="challenge" class="challenge" aria-label="Engine input" hidden></section>
             <form id="composer" class="composer">
-              <label for="prompt" class="sr-only">Message</label>
-              <textarea id="prompt" rows="2" placeholder="Message GoHarness"></textarea>
-              <div class="compose-actions">
-                <span class="muted">⌘ / Ctrl + Enter to send</span>
-                <button id="cancel" type="button" class="quiet" hidden>Cancel run</button>
-                <button id="send" type="submit" class="primary">Send</button>
+              <div class="compose-box">
+                <label for="prompt" class="sr-only">Message</label>
+                <textarea id="prompt" rows="2" placeholder="Message GoHarness"></textarea>
+                <div class="compose-actions">
+                  <span id="compose-key" class="muted"></span>
+                  <button id="cancel" type="button" class="quiet" hidden>Cancel run</button>
+                  <button id="send" type="submit" class="primary">Send <span data-icon="arrow"></span></button>
+                </div>
               </div>
             </form>
           </div>
-          <aside class="activity" aria-label="Child-agent activity">
-            <div class="section-title">Child agents</div>
+          <aside id="activity" class="activity" aria-label="Agent activity">
+            <div class="section-title">Agent activity</div>
             <div id="agents"></div>
           </aside>
         </div>
       </section>
+      <section id="terminal-dock" class="terminal-dock" aria-label="Terminals" hidden>
+        <div id="dock-resize" class="dock-resize" role="separator" tabindex="0" aria-label="Terminal height" aria-orientation="horizontal" aria-valuemin="18" aria-valuemax="62"></div>
+        <header class="terminal-header">
+          <strong><span data-icon="terminal"></span> Terminal</strong>
+          <div id="terminal-tabs" class="terminal-tabs" aria-label="Terminal tabs"></div>
+          <button id="terminal-add" class="icon-button" title="New terminal" aria-label="New terminal"><span data-icon="plus"></span></button>
+          <button id="terminal-split" class="icon-button" title="Split terminal view" aria-label="Split terminal view"><span data-icon="split"></span></button>
+          <button id="terminal-hide" class="icon-button" title="Hide terminal panel" aria-label="Hide terminal panel"><span data-icon="minus"></span></button>
+        </header>
+        <div id="terminal-panes" class="terminal-panes"></div>
+      </section>
     </main>
   </div>
+  <footer class="statusbar">
+    <button id="provider" class="status-button"><span class="status-dot" aria-hidden="true"></span><span id="provider-chip">Provider settings</span></button>
+    <span id="run-count"></span>
+    <button id="status-terminal" class="status-button"><span data-icon="terminal"></span><span id="terminal-count">Terminal</span></button>
+    <span id="versions"></span><button id="updates" class="status-button">Updates</button>
+  </footer>
+
+  <dialog id="palette-dialog" class="palette-dialog" aria-label="Command palette">
+    <label class="palette-search"><span data-icon="search"></span><input id="palette-query" placeholder="Type a command or project…" aria-label="Search commands and projects"><kbd>Esc</kbd></label>
+    <div id="palette-results" role="listbox" aria-label="Commands and projects"></div>
+  </dialog>
+  <dialog id="settings-dialog" aria-labelledby="settings-title">
+    <div class="dialog-heading"><h2 id="settings-title">Workspace settings</h2><button id="close-settings" class="icon-button" aria-label="Close settings"><span data-icon="close"></span></button></div>
+    <div class="settings-grid">
+      <label>Theme<select id="theme"><option value="ember">Ember</option><option value="graphite">Graphite</option><option value="contrast">High contrast</option></select></label>
+      <label>Density<select id="density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>
+      <label>Terminal font size<input id="terminal-font" type="number" min="11" max="22"></label>
+      <label>Default shell<select id="shell"></select></label>
+    </div>
+    <label class="check-row"><input id="restore" type="checkbox"> Reopen session tabs on launch</label>
+    <label class="check-row"><input id="show-projects" type="checkbox"> Show projects sidebar</label>
+    <label class="check-row"><input id="show-activity" type="checkbox"> Show agent activity</label>
+    <div class="button-row settings-actions"><button id="settings-provider">Provider settings</button><button id="reset-settings" class="quiet">Reset appearance</button></div>
+  </dialog>
+  <dialog id="rename-dialog" aria-labelledby="rename-title">
+    <form id="rename-form">
+      <div class="dialog-heading"><h2 id="rename-title">Rename session</h2></div>
+      <label class="rename-label">Session name<input id="rename-value" maxlength="80" required></label>
+      <div class="button-row settings-actions"><button type="submit" class="primary">Save</button><button id="rename-cancel" type="button" class="quiet">Cancel</button></div>
+    </form>
+  </dialog>
 
   <dialog id="provider-dialog">
     <div class="dialog-heading"><h2>Provider settings</h2><button id="close-provider" class="quiet">Close</button></div>

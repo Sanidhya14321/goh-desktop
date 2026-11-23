@@ -1,2 +1,2 @@
 import { copyFile } from "node:fs/promises";
-await copyFile("src/index.html", "dist/index.html");
+await Promise.all(["index.html", "brand.svg"].map(file => copyFile("src/" + file, "dist/" + file)));

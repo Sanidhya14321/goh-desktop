@@ -32,11 +32,12 @@ var (
 var assets embed.FS
 
 type Service struct {
-	host    *desktop.Host
-	app     *application.App
-	window  *application.WebviewWindow
-	updater updateService
-	smoke   *smokeConfig
+	terminals *desktop.Terminals
+	host      *desktop.Host
+	app       *application.App
+	window    *application.WebviewWindow
+	updater   updateService
+	smoke     *smokeConfig
 }
 
 func run() error {
@@ -76,6 +77,7 @@ func run() error {
 	}
 	versions := desktop.Versions{Desktop: version, Channel: channel}
 	s := &Service{}
+	s.terminals = desktop.NewTerminals(func(packet desktop.TerminalPacket) { s.app.Event.Emit("terminal:output", packet) })
 	expected := engineVersion
 	if override {
 		expected = ""
@@ -86,7 +88,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	closeHost := sync.OnceFunc(h.Close)
+	closeHost := sync.OnceFunc(func() { s.terminals.Shutdown(); h.Close() })
 	defer closeHost()
 	s.host = h
 	if probe {
@@ -131,7 +133,8 @@ func run() error {
 			return err
 		}
 	}
-	s.window = s.app.Window.NewWithOptions(application.WebviewWindowOptions{Title: "GoHarness Desktop", Width: 1160, Height: 780, MinWidth: 740, MinHeight: 520, URL: "/", BackgroundColour: application.NewRGB(17, 22, 24)})
+	s.window = s.app.Window.NewWithOptions(application.WebviewWindowOptions{Title: appName(), Width: 1250, Height: 810, MinWidth: 720, MinHeight: 500, URL: "/", BackgroundColour: application.NewRGB(24, 23, 21), Windows: application.WindowsWindow{Theme: application.Dark}, Mac: application.MacWindow{Appearance: application.NSAppearanceNameDarkAqua}})
+	s.configureMenu()
 	return s.app.Run()
 }
 func appName() string {

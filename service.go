@@ -44,3 +44,16 @@ func (s *Service) Login(switchAccount bool) error {
 	return err
 }
 func (s *Service) CancelLogin() { s.host.CancelLogin() }
+
+func (s *Service) Workspace() (desktop.Workspace, error)       { return s.host.Workspace() }
+func (s *Service) SaveWorkspace(state desktop.Workspace) error { return s.host.SaveWorkspace(state) }
+func (s *Service) ForgetProject(project string) error          { return s.host.ForgetProject(project) }
+func (s *Service) Shells() []desktop.Shell                     { return desktop.AvailableShells() }
+func (s *Service) OpenTerminal(id, project, shell string, cols, rows int) (desktop.Shell, error) {
+	return s.terminals.Start(id, project, shell, cols, rows)
+}
+func (s *Service) WriteTerminal(id, text string) error { return s.terminals.Write(id, text) }
+func (s *Service) ResizeTerminal(id string, cols, rows int) error {
+	return s.terminals.Resize(id, cols, rows)
+}
+func (s *Service) CloseTerminal(id string) error { return s.terminals.Close(id) }

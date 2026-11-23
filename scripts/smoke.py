@@ -174,6 +174,7 @@ def execute(binary, root, endpoint, mode, launcher):
     env = clean_env(root)
     config = root / "smoke.json"
     report = root / "report.json"
+    report.unlink(missing_ok=True)
     projects = [root / "first project",root / "second project"]
     for project in projects:
         project.mkdir(exist_ok=True)
@@ -195,7 +196,7 @@ def execute(binary, root, endpoint, mode, launcher):
     previous = ""
     staged = False
     deadline = started + 90
-    done = {"passed","updated","tamper-rejected","failed"}
+    done = {"passed","workspace-passed","workspace-restored","updated","tamper-rejected","failed"}
     with (root / "desktop.log").open("wb") as log:
         process = subprocess.Popen(command,env=env,stdout=log,stderr=log)
         try:
@@ -259,7 +260,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("package",type=Path)
     parser.add_argument("--work",type=Path)
-    parser.add_argument("--mode",default="smoke",choices=["smoke","measure","idle"])
+    parser.add_argument("--mode",default="smoke",choices=["smoke","measure","idle","workspace"])
     parser.add_argument("--launcher",action="store_true")
     parser.add_argument("--installed",action="store_true",help="use the Ubuntu package already installed by APT")
     args = parser.parse_args()
@@ -270,6 +271,10 @@ def main():
         binary = stack.enter_context(install(args.package,root,args.installed))
         try:
             results = execute(binary,root,endpoint,args.mode,args.launcher)
+            if args.mode == "workspace":
+                restored = execute(binary,root,endpoint,"workspace-reopen",args.launcher)
+                assert restored["session"] == results["session"], "a different session was restored"
+                results["reopened"] = restored["step"] == "workspace-restored"
         except Exception:
             print((root / "desktop.log").read_text(errors="replace")[-12000:])
             raise

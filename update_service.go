@@ -102,18 +102,24 @@ func (s *Service) RestartForUpdate() error {
 	if u.staged == "" || u.updater == nil {
 		return errors.New("stage a verified update first")
 	}
+	if err := s.terminals.BeforeRestart(); err != nil {
+		return err
+	}
 	if err := s.host.BeforeRestart(); err != nil {
+		s.terminals.Resume()
 		return err
 	}
 	if runtime.GOOS == "windows" {
 		if err := verifyStagedExecutable(u.updater.DownloadedPath(), u.digest); err != nil {
 			s.host.ResumeAfterFailedRestart()
+			s.terminals.Resume()
 			u.staged = ""
 			return err
 		}
 	}
 	if err := u.updater.Restart(context.Background()); err != nil {
 		s.host.ResumeAfterFailedRestart()
+		s.terminals.Resume()
 		return err
 	}
 	return nil

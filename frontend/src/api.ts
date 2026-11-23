@@ -1,6 +1,10 @@
 import { Call, Events } from "@wailsio/runtime";
 
 export type Session = { id: string; project: string };
+export type Workspace = { project: string; pins: string[]; tabs: Session[]; active: string; names: Record<string,string>;
+  theme: string; density: string; font_size: number; terminal_size: number; shell: string; sidebar: boolean; activity: boolean; restore: boolean };
+export type Shell = { id: string; name: string };
+export type TerminalPacket = { id: string; sequence: number; data?: string; exit?: number };
 export type Versions = { desktop: string; engine: string; channel: string };
 export type Provider = { protocol: string; base_url?: string; model?: string; key?: string; context_window?: number };
 export type Question = { question: string; header: string; options: { label: string; description: string }[]; multiple?: boolean };
@@ -23,6 +27,14 @@ const ns = "main.Service.";
 const call = <T>(method: string, ...args: unknown[]): PromiseLike<T> => Call.ByName(ns + method, ...args);
 
 export const api = {
+  workspace: () => call<Workspace>("Workspace"),
+  saveWorkspace: (workspace: Workspace) => call<void>("SaveWorkspace", workspace),
+  forgetProject: (path: string) => call<void>("ForgetProject", path),
+  shells: () => call<Shell[]>("Shells"),
+  openTerminal: (id: string, project: string, shell: string, cols: number, rows: number) => call<Shell>("OpenTerminal", id, project, shell, cols, rows),
+  writeTerminal: (id: string, text: string) => call<void>("WriteTerminal", id, text),
+  resizeTerminal: (id: string, cols: number, rows: number) => call<void>("ResizeTerminal", id, cols, rows),
+  closeTerminal: (id: string) => call<void>("CloseTerminal", id),
   versions: () => call<Versions>("Versions"),
   projects: () => call<string[]>("RecentProjects"),
   pick: () => call<string>("PickProject"),
@@ -49,4 +61,11 @@ export function onFrames(receive: (id: string, frames: Frame[]) => void) {
 }
 export function onAuthURL(receive: (url: string) => void) {
   return Events.On("provider:auth-url", ({ data }: { data: string }) => receive(data));
+}
+
+export function onTerminal(receive: (packet: TerminalPacket) => void) {
+  return Events.On("terminal:output", ({ data }: { data: TerminalPacket }) => receive(data));
+}
+export function onCommand(receive: (command: string) => void) {
+  return Events.On("workspace:command", ({ data }: { data: string }) => receive(data));
 }

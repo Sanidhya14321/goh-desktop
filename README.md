@@ -2,14 +2,26 @@
 
 A standalone desktop app for GoHarness with a Wails v3 host, one native webview, and a TypeScript UI. The installers include GoHarness. Users launch the app from their OS launcher and can use it without a Go installation or a GoHarness command on PATH.
 
-## Open a project
+## Work in several projects
 
-1. Install the package for your system and launch **GoHarness Desktop**. On macOS, drag the app from the DMG into Applications before opening it.
-2. Open a folder. The newest session opens automatically when available. Choose **New** to start another, or select an existing session in the sidebar.
-3. If needed, connect a provider in **Provider settings**. Use **Continue with ChatGPT** for browser OAuth, or enter the protocol, endpoint, model, context window and API key for an API or local provider. Existing GoHarness settings are used by default. **Use GoHarness settings** restores that selection after a desktop override.
-4. Review approvals in the tab that requested them. The pane shows the engine’s proposed edit preview. A tool result appears after the engine executes the operation. Use **Cancel run** to stop a session and the child-agent pane to follow delegated work.
+1. Launch **GoHarness Desktop** from the OS launcher. On macOS, drag the app from the DMG into Applications before opening it.
+2. Use **Projects** to open a repository or folder. Pin frequently used folders, filter the list, and switch between projects without closing sessions and terminals from other folders.
+3. Click **New session** in the selected project to talk to GoHarness. The provider indicator opens setup for browser OAuth, an API key, or a local provider. Existing GoHarness settings are reused automatically. A terminal can be opened before a provider is set up.
+4. Use the terminal button in the top bar to show the dock. The dock’s **+** opens a real shell in the selected project. Terminal tabs keep running when the dock is hidden or when another project is selected. Use **Split terminal view** to see two panes, and drag the top divider to resize the dock.
+5. Use **Workspace settings** to choose a dark theme, density, terminal font size, default shell, and panel visibility. Pinning, session names, and the selected project persist. With session restoration enabled, the app reopens those tabs on launch.
 
-Two runs can be active across separate projects or Git worktrees. Two sessions in the same checkout share one writer slot. The app starts a helper on session creation or the first run, and retires it after 15 seconds without activity. The top bar shows the desktop version and the version reported by the installed engine.
+| Action | macOS | Ubuntu and Windows |
+| --- | --- | --- |
+| Command palette | Cmd+K | Ctrl+K |
+| Open project | Cmd+O | Ctrl+O |
+| New terminal | Cmd+Shift+T | Ctrl+Shift+T |
+| Workspace settings | Cmd+, | Ctrl+, |
+| Send message | Cmd+Enter | Ctrl+Enter |
+| Copy or paste in a terminal | Cmd+C / Cmd+V | Ctrl+Shift+C / Ctrl+Shift+V |
+
+When focused in an Ubuntu or Windows terminal, use Ctrl+Shift+K for the palette. The palette also offers terminal copy, paste, and scrollback clearing. Native menus expose the main workspace actions.
+
+Two GoHarness runs can be active across separate projects or Git worktrees. Two sessions in the same checkout share one writer slot. Up to 12 interactive terminals can be open, with up to two visible in the dock. Terminals are user-operated OS shells and can edit the same files as GoHarness. Quit closes live terminals, and in-app updates wait for active runs and terminals to finish before restarting. Shell processes and their scrollback are tied to the current app launch.
 
 ## Development
 
@@ -62,4 +74,4 @@ Desktop settings and journals live under the OS user config directory in `GoHarn
 
 The Go host launches the engine by an absolute path and verifies its reported version. Each helper binds `127.0.0.1:0` and receives a fresh bearer token. The host authenticates `GET /v1/info`, checks the fixed project and session directory, and handles the NDJSON stream and input routes. The webview gets batched display events and the bounded recent portion of durable journals. It has no helper address or token. Exit cancels active streams and stops helpers.
 
-The repository includes the [release and signing runbook](docs/RELEASE.md), the [upstream dispatch patch](docs/upstream-desktop-hook.patch), and the [verification and performance report](docs/VERIFICATION.md).
+The [workspace redesign verification](docs/WORKSPACE.md) records the latest checks. The repository also includes the [release and signing runbook](docs/RELEASE.md), the [upstream dispatch patch](docs/upstream-desktop-hook.patch), and the [verification and performance report](docs/VERIFICATION.md).

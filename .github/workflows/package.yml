@@ -68,18 +68,22 @@ jobs:
           package=(out/dev/*.deb)
           sudo apt-get install -y "./${package[0]}"
           xvfb-run -a dbus-run-session -- python scripts/smoke.py "${package[0]}" --installed --launcher --work "$RUNNER_TEMP/goh-smoke"
+          xvfb-run -a dbus-run-session -- python scripts/smoke.py "${package[0]}" --installed --launcher --mode workspace --work "$RUNNER_TEMP/goh-workspace"
       - name: Smoke-test installed macOS package
         if: runner.os == 'macOS'
         shell: bash
         run: |
           package=(out/dev/*.dmg)
           python scripts/smoke.py "${package[0]}" --launcher --work "$RUNNER_TEMP/goh-smoke"
+          python scripts/smoke.py "${package[0]}" --launcher --mode workspace --work "$RUNNER_TEMP/goh-workspace"
       - name: Smoke-test installed Windows package
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $package = (Get-ChildItem out/dev/*-installer.exe).FullName
           python scripts/smoke.py $package --work "$env:RUNNER_TEMP/goh-smoke"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/smoke.py $package --mode workspace --work "$env:RUNNER_TEMP/goh-workspace"
       - name: Check out the exact engine source for the update fixture
         if: inputs.target == 'darwin-universal' || runner.os == 'Windows'
         uses: actions/checkout@v5
@@ -155,4 +159,5 @@ jobs:
             ${{ runner.temp }}/goh-smoke/result.json
             ${{ runner.temp }}/goh-smoke/desktop.log
             ${{ runner.temp }}/goh-update/*-result.json
+            ${{ runner.temp }}/goh-workspace/result.json
           if-no-files-found: ignore

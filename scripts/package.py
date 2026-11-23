@@ -24,13 +24,16 @@ def run(*args, **kwargs):
     subprocess.run([str(a) for a in args], check=True, cwd=ROOT, **kwargs)
 
 def png_icon(size=256):
-    def pixel(x, y):
-        x, y = (x + .5) / size - .5, (y + .5) / size - .5
-        edge_x, edge_y = max(abs(x) - .29, 0), max(abs(y) - .29, 0)
-        inside = edge_x**2 + edge_y**2 < .16**2
-        ring = .125**2 < x*x + y*y < .202**2 and not (x > .02 and -.17 < y < -.04)
-        bar = -.007 < y < .056 and .002 < x < .199
-        return bytes((164, 227, 194, 255) if ring or bar else (36, 59, 50, 255 if inside else 0))
+    def near_segment(x,y,ax,ay,bx,by):
+        dx,dy = bx-ax,by-ay
+        t = min(1,max(0,((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy)))
+        return (x-ax-t*dx)**2+(y-ay-t*dy)**2 <= 2**2
+    def pixel(x,y):
+        x,y = (x+.5)*48/size,(y+.5)*48/size
+        cx,cy = min(40,max(8,x)),min(40,max(8,y))
+        inside = (x-cx)**2+(y-cy)**2 <= 8**2
+        glyph = any(near_segment(x,y,*line) for line in ((11,15,21,24),(21,24,11,33),(26,33,36,33)))
+        return bytes((42,27,20,255) if glyph else (239,173,131,255 if inside else 0))
     def chunk(name, data):
         return struct.pack(">I", len(data)) + name + data + struct.pack(">I", binascii.crc32(name+data))
     pixels = b"".join(b"\0" + b"".join(pixel(x,y) for x in range(size)) for y in range(size))
@@ -51,6 +54,21 @@ def copy_notices(engine,destination,record):
     module = subprocess.check_output([GO,"list","-m","-f","{{.Dir}}","github.com/wailsapp/wails/v3"],
                                      cwd=ROOT,text=True).strip()
     shutil.copyfile(Path(module) / "LICENSE",destination / "WAILS-LICENSE.txt")
+    (destination / "DESKTOP-THIRD-PARTY.txt").write_text(dependency_licenses(),encoding="utf-8")
+
+def dependency_licenses():
+    notices = []
+    for dependency in ("github.com/Kodecable/crosspty","github.com/creack/pty"):
+        module = subprocess.check_output([GO,"list","-m","-f","{{.Dir}}",dependency],
+                                         cwd=ROOT,text=True).strip()
+        root = Path(module)
+        licenses = [root / "LICENSE",*sorted((root / "licenses").glob("LICENSE*"))]
+        for license in licenses:
+            notices.append(dependency + " (" + license.name + ")\n" + license.read_text(encoding="utf-8"))
+    for dependency in ("@xterm/xterm","@xterm/addon-fit","@fontsource/barlow","@fontsource/barlow-condensed"):
+        license = ROOT / "frontend/node_modules" / dependency / "LICENSE"
+        notices.append(dependency + "\n" + license.read_text(encoding="utf-8"))
+    return "\n\n".join(notices)
 
 def build(args, system, arch, output, tags="production"):
     env = os.environ | {"GOOS": system, "GOARCH": arch}
