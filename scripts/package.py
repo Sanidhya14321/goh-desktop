@@ -30,20 +30,21 @@ def record_engine(args,binary):
     record.write_text(json.dumps(metadata,indent=2)+"\n")
     return record
 
+def module_directory(module):
+    info = subprocess.check_output([GO, "mod", "download", "-json", module], cwd=ROOT, text=True)
+    return Path(json.loads(info)["Dir"])
+
 def copy_notices(engine,destination,record):
     for name in NOTICES:
         shutil.copy2(record if name == "engine-build.json" else engine / name,destination / name)
-    module = subprocess.check_output([GO,"list","-m","-f","{{.Dir}}","github.com/wailsapp/wails/v3"],
-                                     cwd=ROOT,text=True).strip()
-    shutil.copyfile(Path(module) / "LICENSE",destination / "WAILS-LICENSE.txt")
+    wails = module_directory("github.com/wailsapp/wails/v3")
+    shutil.copyfile(wails / "LICENSE",destination / "WAILS-LICENSE.txt")
     (destination / "DESKTOP-THIRD-PARTY.txt").write_text(dependency_licenses(),encoding="utf-8")
 
 def dependency_licenses():
     notices = []
     for dependency in ("github.com/Kodecable/crosspty","github.com/creack/pty"):
-        module = subprocess.check_output([GO,"list","-m","-f","{{.Dir}}",dependency],
-                                         cwd=ROOT,text=True).strip()
-        root = Path(module)
+        root = module_directory(dependency)
         licenses = [root / "LICENSE",*sorted((root / "licenses").glob("LICENSE*"))]
         for license in licenses:
             notices.append(dependency + " (" + license.name + ")\n" + license.read_text(encoding="utf-8"))

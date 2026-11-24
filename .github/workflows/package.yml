@@ -19,6 +19,7 @@ jobs:
     environment: ${{ inputs.sign && (startsWith(inputs.target, 'darwin') && 'mac-signing' || startsWith(inputs.target, 'windows') && 'windows-signing' || 'linux-release') || 'desktop-dry-run' }}
     env:
       GH_TOKEN: ${{ github.token }}
+      GOPROXY: https://proxy.golang.org|direct
       ENGINE_TAG: ${{ inputs.engine_tag }}
       TARGET: ${{ inputs.target }}
       CHANNEL: ${{ inputs.channel }}
