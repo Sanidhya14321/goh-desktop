@@ -49,3 +49,10 @@ func (s *Service) SmokeExportSession(session desktop.Session, format string, inc
 	}
 	return s.host.Export(session, format, includeTools, filepath.Join(filepath.Dir(s.smoke.Report), name))
 }
+
+func (s *Service) SmokeFileReferences(session desktop.Session, paths []string) ([]string, error) {
+	if s.smoke == nil || s.smoke.Mode != "workspace" {
+		return nil, errors.New("an active workspace fixture is required")
+	}
+	return desktop.FileReferences(session.Project, paths)
+}

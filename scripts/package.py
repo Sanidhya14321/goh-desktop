@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Build a self-contained Wails package using a verified upstream engine directory."""
 import argparse
-import binascii
 import hashlib
 import json
 import os
@@ -10,11 +9,11 @@ import platform
 import plistlib
 import re
 import shutil
-import struct
 import subprocess
 import tempfile
-import zlib
 import zipfile
+
+from brand_icon import BRAND, mac_icon, png_icon, windows_icon
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTICES = ["engine-build.json", "LICENSE", "THIRD_PARTY_NOTICES", "licenses.tar.gz"]
@@ -22,23 +21,6 @@ GO = os.getenv("GO", "go")
 
 def run(*args, **kwargs):
     subprocess.run([str(a) for a in args], check=True, cwd=ROOT, **kwargs)
-
-def png_icon(size=256):
-    def near_segment(x,y,ax,ay,bx,by):
-        dx,dy = bx-ax,by-ay
-        t = min(1,max(0,((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy)))
-        return (x-ax-t*dx)**2+(y-ay-t*dy)**2 <= 2**2
-    def pixel(x,y):
-        x,y = (x+.5)*48/size,(y+.5)*48/size
-        cx,cy = min(40,max(8,x)),min(40,max(8,y))
-        inside = (x-cx)**2+(y-cy)**2 <= 8**2
-        glyph = any(near_segment(x,y,*line) for line in ((11,15,21,24),(21,24,11,33),(26,33,36,33)))
-        return bytes((42,27,20,255) if glyph else (239,173,131,255 if inside else 0))
-    def chunk(name, data):
-        return struct.pack(">I", len(data)) + name + data + struct.pack(">I", binascii.crc32(name+data))
-    pixels = b"".join(b"\0" + b"".join(pixel(x,y) for x in range(size)) for y in range(size))
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR",struct.pack(">IIBBBBB",size,size,8,6,0,0,0))
-            + chunk(b"IDAT",zlib.compress(pixels)) + chunk(b"IEND",b""))
 
 def record_engine(args,binary):
     metadata = json.loads((args.engine / "engine-build.json").read_text())
@@ -131,8 +113,7 @@ def mac(args):
         "CFBundleIconFile":"AppIcon", "LSMinimumSystemVersion":"13.0",
         "NSHighResolutionCapable":True, "NSPrincipalClass":"NSApplication",
     }))
-    icon = png_icon()
-    (resources / "AppIcon.icns").write_bytes(b"icns" + struct.pack(">I",16+len(icon)) + b"ic08" + struct.pack(">I",8+len(icon)) + icon)
+    (resources / "AppIcon.icns").write_bytes(mac_icon())
     identity = os.environ["MAC_SIGN_IDENTITY"] if args.release else "-"
     sign_mac(native / "goh",identity)
     record = record_engine(args,native / "goh")
@@ -188,9 +169,13 @@ def linux(args):
         if args.channel == "preview":
             launcher = launcher.replace("Name=GoHarness Desktop", "Name=GoHarness Desktop Preview").replace("Exec=/opt/goh-desktop/", "Exec=/opt/goh-desktop-preview/").replace("Icon=goh-desktop", "Icon=goh-desktop-preview")
         (desktop / (name + ".desktop")).write_text(launcher)
-        icon = path / "usr/share/icons/hicolor/256x256/apps"
+        for size in (48,256):
+            icon = path / f"usr/share/icons/hicolor/{size}x{size}/apps"
+            icon.mkdir(parents=True)
+            (icon / (name + ".png")).write_bytes(png_icon(size))
+        icon = path / "usr/share/icons/hicolor/scalable/apps"
         icon.mkdir(parents=True)
-        (icon / (name + ".png")).write_bytes(png_icon())
+        shutil.copyfile(BRAND, icon / (name + ".svg"))
         profiles = path / "etc/apparmor.d"
         profiles.mkdir(parents=True)
         profile = (ROOT / "packaging/ubuntu-apparmor.conf").read_text().replace("@PACKAGE@",name)
@@ -236,9 +221,13 @@ def windows(args):
         embedded = ROOT / "engine-windows.bin"
         embedded_notices = ROOT / "engine-windows-notices.bin"
         desktop = payload / "goh-desktop.exe"
-        if embedded.exists() or embedded_notices.exists():
+        resource = ROOT / f"brand_windows_{arch}.syso"
+        icon = payload / "goh-desktop.ico"
+        if embedded.exists() or embedded_notices.exists() or resource.exists():
             raise SystemExit("remove stale Windows embed inputs before building")
         try:
+            icon.write_bytes(windows_icon())
+            run(GO, "run", "./cmd/windows-icon", icon, resource, arch)
             shutil.copyfile(args.engine / f"goh-windows-{arch}.exe",embedded)
             # Authenticode recognizes the PE bytes but uses the filename to select the SIP.
             if args.release:
@@ -256,10 +245,9 @@ def windows(args):
         finally:
             embedded.unlink(missing_ok=True)
             embedded_notices.unlink(missing_ok=True)
+            resource.unlink(missing_ok=True)
         if args.release:
             sign_windows(desktop)
-        icon = png_icon()
-        (payload / "goh-desktop.ico").write_bytes(struct.pack("<HHHBBBBHHII",0,1,1,0,0,0,0,1,32,len(icon),22)+icon)
         prefix = args.output / ("goh-desktop-windows-" + arch)
         shutil.copy2(desktop,str(prefix)+"-update.exe")
         installer = str(prefix)+"-installer.exe"

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws://wails.localhost wss://wails.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'">
   <title>GoHarness Desktop</title>
+  <link rel="icon" href="/brand.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/main.css">
   <script type="module" src="/main.js"></script>
 </head>
@@ -73,6 +74,7 @@
                 <textarea id="prompt" rows="2" placeholder="Message GoHarness"></textarea>
                 <button id="starter-prompt" class="starter-prompt quiet" type="button" hidden>Explain this project</button>
                 <div class="compose-actions">
+                  <button id="attach-files" class="icon-button" type="button" title="Attach project text files" aria-label="Attach project text files"><span data-icon="attach"></span></button>
                   <label for="agent-mode" class="sr-only">Agent mode</label>
                   <select id="agent-mode" aria-describedby="mode-description">
                     <option value="default">Configured agent</option>

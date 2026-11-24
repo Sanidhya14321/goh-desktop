@@ -17,6 +17,7 @@ export async function checkWorkspace(
   choose: (path: string) => Promise<void>,
   open: (session: Session) => Promise<void>,
   saveQueue: () => Promise<void>,
+  insertReferences: (session: Session, refs: string[]) => void,
 ) {
   const mac = /Mac/.test(navigator.platform);
   document.dispatchEvent(new KeyboardEvent("keydown", { key:"P", shiftKey:true, metaKey:mac, ctrlKey:!mac }));
@@ -170,6 +171,25 @@ export async function checkWorkspace(
   if (!blocked) throw new Error("active-session export was allowed");
   [...challenge.querySelectorAll<HTMLButtonElement>("button")].find(control => control.textContent === "Continue in Plan")!.click();
   await waitFor(idle, "Plan did not finish after the manual review");
+  const refs = await api.smokeFileReferences(created, [second + "/context café.txt", second + "/supplement.txt"]);
+  if (refs.length !== 2 || refs[0] !== '@"context café.txt"') throw new Error("picker did not quote a space and Unicode filename");
+  let outside = false;
+  try { await api.smokeFileReferences(created, [first + "/context café.txt"]); }
+  catch (error) { outside = String(error).includes("inside this session's project"); }
+  if (!outside) throw new Error("picker accepted a file from another project");
+  const prefix = "fixture verify context";
+  prompt.value = prefix;
+  prompt.dispatchEvent(new Event("input"));
+  prompt.setSelectionRange(prefix.length, prefix.length);
+  insertReferences(created, refs);
+  if (!prompt.value.includes(refs.join(" "))) throw new Error("the references were not inserted in the editable draft");
+  get<HTMLFormElement>("composer").requestSubmit();
+  await waitFor(() => idle() && includesMessage("Context files received"), "scripted provider did not receive both attachments");
+  const attachments = get("messages").querySelector(".message-attachments");
+  if (!attachments?.textContent?.includes("context café.txt") || !attachments.textContent.includes("supplement.txt") ||
+      get("messages").textContent?.includes("CONTEXT_FIXTURE_SECRET_MARKER")) {
+    throw new Error("the engine's attachment event failed to update the correct prompt");
+  }
   run("fixture inspect tools");
   await waitFor(() => idle() && includesMessage("Plan tools only"), "engine did not restrict Plan tools");
   changeMode("build");

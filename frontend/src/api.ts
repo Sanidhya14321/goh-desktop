@@ -21,14 +21,14 @@ export type EngineEvent = {
   type: string;
   data?: RunSummary & {
     id?: string; task_id?: string; event?: EngineEvent;
-    text?: string; name?: string; tool?: string; target?: string; chars?: number;
+    paths?: string[]; text?: string; name?: string; tool?: string; target?: string; chars?: number;
     message?: string | { content?: string };
     result?: { content?: string; error?: boolean };
   };
 };
 export type Frame = { event?: EngineEvent; input?: Challenge; end?: boolean; error?: string; pending?: unknown };
 export type Reply = { allow: boolean } | { answers: string[][] } | { dismiss: boolean };
-export type History = { messages: { role: string; content: string }[]; truncated: boolean; runs?: RunSummary[] };
+export type History = { messages: { role: string; content: string; files?: string[] }[]; truncated: boolean; runs?: RunSummary[] };
 export type Smoke = { projects: string[]; endpoint: string; report: string; mode: string };
 
 const ns = "main.Service.";
@@ -45,6 +45,8 @@ export const api = {
   closeTerminal: (id: string) => call<void>("CloseTerminal", id),
   versions: () => call<Versions>("Versions"),
   projects: () => call<string[]>("RecentProjects"),
+  pickContextFiles: (session: Session) => call<string[] | null>("PickContextFiles", session),
+  smokeFileReferences: (session: Session, paths: string[]) => call<string[]>("SmokeFileReferences", session, paths),
   pick: () => call<string>("PickProject"),
   select: (path: string) => call<string>("SelectProject", path),
   sessions: (path: string) => call<Session[]>("Sessions", path),

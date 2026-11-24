@@ -28,7 +28,7 @@ const nameOf = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? p
 const limit = (s: string, n = 8192) => s.length > n ? s.slice(0, n) + "\n…" : s;
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-type Entry = { role: string; text: string; label?: string };
+type Entry = { role: string; text: string; label?: string; files?: string[] };
 type Child = { agent: string; status: string };
 type Tab = {
   session: Session; entries: Entry[]; children: Map<string, Child>; toolNames: Map<string, string>;
@@ -264,7 +264,7 @@ async function open(session: Session) {
     const latest = tab.runs.at(-1);
     if (latest) tab.status = runLabel(latest);
     if (history.truncated) add(tab, { role: "system", text: "Showing recent messages. The engine retains the full session journal." });
-    for (const message of history.messages) add(tab, { role: message.role, text: message.content });
+    for (const message of history.messages) add(tab, { role: message.role, text: message.content, files: message.files });
   } catch (error) {
     tab.error = errorText(error);
   } finally {
@@ -308,6 +308,11 @@ function applyEvent(tab: Tab, event: EngineEvent) {
       tab.runContext = { agent: data.agent, agent_mode: data.agent_mode };
       tab.status = "Running";
       break;
+    case "files_attached": {
+      const message = [...tab.entries].reverse().find(entry => entry.role === "user");
+      if (message && data.paths?.length) message.files = data.paths;
+      break;
+    }
     case "assistant_started": tab.partial = ""; tab.toolProgress = undefined; break;
     case "assistant_updated": tab.partial = limit(tab.partial + (data.text ?? ""), 32768); break;
     case "assistant_reset": tab.partial = ""; break;
@@ -403,6 +408,7 @@ function drawSession() {
   get("session-path").title = tab.session.project;
   get("run-status").dataset.state = tab.input ? "input" : tab.running ? "active" : "idle";
   get("run-status").textContent = tab.input ? "Needs input" : tab.toolProgress ? limit(tab.toolProgress, 45) : tab.status;
+  get<HTMLButtonElement>("attach-files").disabled = tab.loading || !!tab.recovery;
   agentMode.value = tab.mode;
   agentMode.disabled = tab.running || tab.loading || !!tab.recovery;
   agentMode.title = get("mode-description").textContent = modeHelp[tab.mode];
@@ -419,11 +425,14 @@ function drawSession() {
   for (const [index, e] of entries.entries()) {
     const current = transcript.children[index] as HTMLElement | undefined;
     const label = e.label ?? (e.role === "user" ? "You" : e.role === "assistant" ? "GoHarness" : e.role === "tool" ? "Tool output" : "");
-    if (current?.dataset.role === e.role && current.dataset.label === label && current.dataset.content === e.text) continue;
+    const files = JSON.stringify(e.files ?? []);
+    if (current?.dataset.role === e.role && current.dataset.label === label &&
+        current.dataset.content === e.text && current.dataset.files === files) continue;
     const row = element("article", "", "message " + e.role);
     row.dataset.role = e.role;
     row.dataset.label = label;
     row.dataset.content = e.text;
+    row.dataset.files = files;
     if (e.role === "tool") {
       const details = element("details");
       details.append(element("summary", label),element("pre",e.text));
@@ -431,6 +440,16 @@ function drawSession() {
     } else {
       if (label) row.append(element("small", label));
       row.append(element("div", e.text, "message-text"));
+      if (e.files?.length) {
+        const attachments = element("ul", "", "message-attachments");
+        attachments.setAttribute("aria-label", "Attached project files");
+        for (const path of e.files) {
+          const file = element("li");
+          file.append(icon("attach"), element("span", path));
+          attachments.append(file);
+        }
+        row.append(attachments);
+      }
     }
     if (current) current.replaceWith(row); else transcript.append(row);
   }
@@ -582,6 +601,33 @@ get<HTMLFormElement>("composer").onsubmit = event => {
   const tab = tabs.get(active);
   if (tab) void send(tab, prompt.value);
 };
+function insertReferences(session: Session, refs: string[]) {
+  const tab = tabs.get(session.id);
+  if (!tab || !refs.length) return;
+  const text = tab.draft;
+  const focused = active === session.id;
+  const cursor = focused ? prompt.selectionEnd : text.length;
+  const left = text.slice(0, cursor);
+  const right = text.slice(cursor);
+  const start = left && !/\s$/.test(left) ? " " : "";
+  const insertion = start + refs.join(" ") + (right && /^\s/.test(right) ? "" : " ");
+  tab.draft = left + insertion + right;
+  if (focused) {
+    prompt.value = tab.draft;
+    prompt.setSelectionRange(cursor + insertion.length, cursor + insertion.length);
+    drawSession();
+    prompt.focus();
+  }
+}
+
+const attachFiles = action(async () => {
+  const tab = tabs.get(active);
+  if (!tab || tab.loading || tab.recovery) return;
+  const refs = await api.pickContextFiles(tab.session);
+  if (refs?.length) insertReferences(tab.session, refs);
+});
+get("attach-files").onclick = attachFiles;
+
 agentMode.onchange = () => {
   const tab = tabs.get(active);
   if (!tab || agentMode.disabled) return;
@@ -1004,6 +1050,7 @@ function getCommands(): Command[] {
   ];
   if (waitingTabs().length) candidates.push({label:"Review sessions needing input",glyph:"alert",run:showAttention});
   if (tabs.has(active)) {
+    candidates.push({label:"Attach project files…",glyph:"attach",run:attachFiles});
     candidates.push({label:"View run history",glyph:"history",run:showRunHistory});
     if (!get<HTMLButtonElement>("session-export").disabled) {
       candidates.push({label:"Export current session…",glyph:"download",run:showExport});
@@ -1141,11 +1188,15 @@ void action(async () => {
           throw new Error("the app did not restore the engine run evidence and selected mode");
         }
         get("close-runs").click();
+        const attached = get("messages").querySelector(".message-attachments");
+        if (!attached?.textContent?.includes("context café.txt") || get("messages").textContent?.includes("CONTEXT_FIXTURE_SECRET_MARKER")) {
+          throw new Error("restored history lost the attachment label or displayed its full contents");
+        }
         await api.report(JSON.stringify({step:"workspace-restored",theme:prefs.theme,session:active}),true);
         return;
       }
       const { checkWorkspace } = await import("./workspace-check");
-      const state = await checkWorkspace(smoke,choose,open,() => saved);
+      const state = await checkWorkspace(smoke,choose,open,() => saved,insertReferences);
       await api.report(JSON.stringify({step:"workspace-passed",theme:state.theme,session:state.active}),true);
     } catch (err) {
       await api.report(JSON.stringify({step:"failed",error:errorText(err)}),true);

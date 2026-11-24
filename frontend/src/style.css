@@ -285,3 +285,8 @@ dialog p { color: var(--muted); overflow-wrap: anywhere; margin-bottom: 8px; }
 .run-record pre { margin: .5rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .export-option { display: flex; align-items: center; gap: .5rem; margin-top: .75rem; }
 #export-error { overflow-wrap: anywhere; }
+
+.message-attachments { display: flex; flex-wrap: wrap; gap: .35rem; list-style: none; margin: .5rem 0 0; padding: 0; }
+.message-attachments li { display: flex; align-items: center; gap: .3rem; max-width: 100%; border: 1px solid var(--rule); border-radius: .3rem; padding: .16rem .4rem; font: .75rem var(--mono); }
+.message-attachments li span { overflow-wrap: anywhere; }
+.message-attachments svg { flex: none; width: 13px; height: 13px; color: var(--accent); }

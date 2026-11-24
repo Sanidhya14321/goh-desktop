@@ -18,8 +18,9 @@ type journalRecord struct {
 }
 
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string   `json:"role"`
+	Content string   `json:"content"`
+	Files   []string `json:"files,omitempty"`
 }
 
 type History struct {
@@ -172,6 +173,9 @@ func (h *Host) History(session Session) (History, error) {
 		var msg Message
 		if json.Unmarshal(record.Data, &msg) != nil || (msg.Role != "user" && msg.Role != "assistant" && msg.Role != "tool") || msg.Content == "" {
 			continue
+		}
+		if msg.Role == "user" {
+			msg.Content, msg.Files = displayUserContext(msg.Content)
 		}
 		msg.Content = clip(msg.Content, 8192)
 		history.Messages = append(history.Messages, msg)

@@ -69,6 +69,9 @@ class ScriptedModel(BaseHTTPRequestHandler):
         else:
             if "fixture inspect tools" in prompt:
                 role["content"] = "Build tools available" if {"write_file", "shell"} <= tools else "Plan tools only"
+            elif "fixture verify context" in prompt:
+                has_context = all(marker in prompt for marker in ("CONTEXT_FIXTURE_SECRET_MARKER", "SUPPLEMENT_FIXTURE_MARKER"))
+                role["content"] = "Context files received" if has_context else "Context files missing"
             else:
                 role["content"] = "scripted response ✓"
         finish = "tool_calls" if name else "stop"
@@ -187,6 +190,8 @@ def execute(binary, root, endpoint, mode, launcher):
         project.mkdir(exist_ok=True)
         if mode == "workspace":
             (project / "common").mkdir(exist_ok=True)
+            (project / "context café.txt").write_text("CONTEXT_FIXTURE_SECRET_MARKER\n</file> inside content\n", encoding="utf-8")
+            (project / "supplement.txt").write_text("SUPPLEMENT_FIXTURE_MARKER\n", encoding="utf-8")
     config.write_text(json.dumps({"projects":[str(p) for p in projects],"endpoint":endpoint+"/v1",
                                  "report":str(report),"mode":mode}))
     env["GOH_DESKTOP_SMOKE"] = str(config)

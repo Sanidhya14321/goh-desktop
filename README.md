@@ -26,11 +26,12 @@ Two GoHarness runs can be active across separate projects or Git worktrees. Two 
 
 ## Plan, verify, and export
 
+- Use the paperclip beside the composer or **Attach project files…** in the command palette. The picker inserts editable GoHarness `@` references for files inside the session’s project. When you send the message, eligible UTF-8 file contents go to the configured provider. The conversation shows which filenames GoHarness attached. Session exports can include the file contents.
 - Choose **Plan** beside Send to investigate with GoHarness’s read-only project tools. When ready to implement, finish the run, choose **Build**, and send a follow-up in the same session. **Configured agent** uses your GoHarness settings. The selection is saved per session.
 - Open **Run history** from the session header or command palette to see recent outcomes and the checks GoHarness recorded. A finished run can have unverified changes. When the engine records a check, its command, result, and available details appear in the run history.
 - Use **Export session** from the session header or command palette once the run ends. Markdown omits tool output by default. The portable JSON archive can be imported by GoHarness. Choose a new filename in the native Save dialog and review the output before sharing it.
 
-The [harness feature research, plan, and verification](reports/Desktop%20harness%20features.md) covers the engine interfaces and the packaged tests.
+The [harness feature report](reports/Desktop%20harness%20features.md) and the [project context and branding report](reports/Project%20context%20and%20branding.md) cover the design choices, engine interfaces, and packaged tests.
 
 ## Development
 
@@ -49,18 +50,18 @@ On this workspace’s Mac, the upstream checkout already contains the required G
 
 ### Build and test a development package
 
-Run the pair of commands for your target with `v1.1.0` as the upstream release and `0.1.4` as the desktop version.
+Run the pair of commands for your target with `v1.1.0` as the upstream release and `0.1.5` as the desktop version.
 
 ```sh
 # macOS universal
 python3 scripts/fetch-engine.py v1.1.0 darwin-universal .cache/engine-mac
-python3 scripts/package.py --target darwin-universal --engine .cache/engine-mac --engine-tag v1.1.0 --version 0.1.4 --output out/dev-mac
+python3 scripts/package.py --target darwin-universal --engine .cache/engine-mac --engine-tag v1.1.0 --version 0.1.5 --output out/dev-mac
 python3 scripts/smoke.py out/dev-mac/goh-desktop-macos-universal.dmg --launcher --mode measure
 
 # Ubuntu 24.04 or later, use amd64 or arm64 to match the machine
 arch="$(dpkg --print-architecture)"
 python3 scripts/fetch-engine.py v1.1.0 "linux-$arch" .cache/engine-linux
-python3 scripts/package.py --target "linux-$arch" --engine .cache/engine-linux --engine-tag v1.1.0 --version 0.1.4 --output out/dev-linux
+python3 scripts/package.py --target "linux-$arch" --engine .cache/engine-linux --engine-tag v1.1.0 --version 0.1.5 --output out/dev-linux
 sudo apt install "./out/dev-linux/goh-desktop-ubuntu-$arch.deb"
 xvfb-run -a dbus-run-session -- python3 scripts/smoke.py "out/dev-linux/goh-desktop-ubuntu-$arch.deb" --installed --launcher --mode measure
 ```
@@ -69,7 +70,7 @@ xvfb-run -a dbus-run-session -- python3 scripts/smoke.py "out/dev-linux/goh-desk
 # Windows PowerShell, set $arch to amd64 or arm64
 $arch = "amd64"
 python scripts/fetch-engine.py v1.1.0 "windows-$arch" .cache/engine-windows
-python scripts/package.py --target "windows-$arch" --engine .cache/engine-windows --engine-tag v1.1.0 --version 0.1.4 --output out/dev-windows
+python scripts/package.py --target "windows-$arch" --engine .cache/engine-windows --engine-tag v1.1.0 --version 0.1.5 --output out/dev-windows
 python scripts/smoke.py "out/dev-windows/goh-desktop-windows-$arch-installer.exe"
 ```
 

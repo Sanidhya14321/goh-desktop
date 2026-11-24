@@ -20,6 +20,19 @@ func displayEvent(event *Event) bool {
 		result.limitDisplay()
 		event.Data, _ = json.Marshal(result)
 		return true
+	case "files_attached":
+		var data struct {
+			Paths []string `json:"paths"`
+		}
+		if err := json.Unmarshal(event.Data, &data); err != nil {
+			return false
+		}
+		data.Paths = data.Paths[:min(len(data.Paths), maxContextFiles)]
+		for i, path := range data.Paths {
+			data.Paths[i] = clip(path, 4096)
+		}
+		event.Data, _ = json.Marshal(data)
+		return true
 	case "assistant_started", "assistant_reset", "permission_resolved":
 		event.Data = nil
 		return true

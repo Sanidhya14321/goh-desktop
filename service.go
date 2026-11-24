@@ -16,6 +16,15 @@ func (s *Service) PickProject() (string, error) {
 	}
 	return s.host.SelectProject(dir)
 }
+func (s *Service) PickContextFiles(session desktop.Session) ([]string, error) {
+	paths, err := s.app.Dialog.OpenFile().AttachToWindow(s.window).CanChooseFiles(true).CanChooseDirectories(false).
+		SetTitle("Attach project files").SetDirectory(session.Project).PromptForMultipleSelection()
+	if err != nil || len(paths) == 0 {
+		return nil, err
+	}
+	return desktop.FileReferences(session.Project, paths)
+}
+
 func (s *Service) SelectProject(dir string) (string, error)       { return s.host.SelectProject(dir) }
 func (s *Service) Sessions(dir string) ([]desktop.Session, error) { return s.host.Sessions(dir) }
 func (s *Service) Create(dir string) (desktop.Session, error)     { return s.host.Create(dir) }

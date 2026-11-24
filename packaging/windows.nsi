@@ -16,6 +16,7 @@ InstallDir "$LOCALAPPDATA\Programs\GoHarness Desktop ${CHANNEL}"
 InstallDirRegKey HKCU "Software\GoHarness\Desktop\${CHANNEL}" "InstallDir"
 !define MUI_ABORTWARNING
 !define MUI_ICON "${PAYLOAD}\goh-desktop.ico"
+!define MUI_UNICON "${PAYLOAD}\goh-desktop.ico"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -27,14 +28,14 @@ Section "Install"
   SetShellVarContext current
   SetOutPath "$INSTDIR"
   File "${PAYLOAD}\goh-desktop.exe"
-  File "${PAYLOAD}\goh-desktop.ico"
+  Delete "$INSTDIR\goh-desktop.ico"
   WriteUninstaller "$INSTDIR\uninstall.exe"
   CreateDirectory "$SMPROGRAMS\GoHarness Desktop ${CHANNEL}"
-  CreateShortCut "$SMPROGRAMS\GoHarness Desktop ${CHANNEL}\GoHarness Desktop.lnk" "$INSTDIR\goh-desktop.exe" "" "$INSTDIR\goh-desktop.ico"
+  CreateShortCut "$SMPROGRAMS\GoHarness Desktop ${CHANNEL}\GoHarness Desktop.lnk" "$INSTDIR\goh-desktop.exe" "" "$INSTDIR\goh-desktop.exe"
   WriteRegStr HKCU "Software\GoHarness\Desktop\${CHANNEL}" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoHarnessDesktop-${CHANNEL}" "DisplayName" "GoHarness Desktop (${CHANNEL})"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoHarnessDesktop-${CHANNEL}" "UninstallString" '"$INSTDIR\uninstall.exe"'
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoHarnessDesktop-${CHANNEL}" "DisplayIcon" "$INSTDIR\goh-desktop.ico"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoHarnessDesktop-${CHANNEL}" "DisplayIcon" "$INSTDIR\goh-desktop.exe"
 SectionEnd
 Section "Uninstall"
   SetShellVarContext current
