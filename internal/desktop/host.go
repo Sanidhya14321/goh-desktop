@@ -57,7 +57,16 @@ type Reply struct {
 	Dismiss bool       `json:"dismiss,omitempty"`
 }
 
+type RunMode string
+
+const (
+	ModeDefault RunMode = "default"
+	ModePlan    RunMode = "plan"
+	ModeBuild   RunMode = "build"
+)
+
 type slot struct {
+	mode  RunMode
 	ready chan struct{}
 	*helper
 	err error
@@ -84,6 +93,7 @@ type Host struct {
 	projects                             []string
 	helpers                              map[string]*slot
 	runs                                 map[Session]*run
+	exports                              map[string]bool
 	closed, restarting, changingProvider bool
 	operations                           int
 	authCancel                           context.CancelFunc
@@ -99,7 +109,7 @@ func New(root, binary string, versions Versions, expected string, development bo
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	h := &Host{root: root, sessions: sessions, binary: binary, versions: versions, expected: expected, development: development, emit: emit, ctx: ctx, shutdown: cancel, helpers: make(map[string]*slot), runs: make(map[Session]*run)}
+	h := &Host{root: root, sessions: sessions, binary: binary, versions: versions, expected: expected, development: development, emit: emit, ctx: ctx, shutdown: cancel, helpers: make(map[string]*slot), runs: make(map[Session]*run), exports: make(map[string]bool)}
 	data, err := os.ReadFile(filepath.Join(root, "projects.json"))
 	if err == nil {
 		err = json.Unmarshal(data, &h.projects)
@@ -253,7 +263,7 @@ func writePrivate(dir, name string, write func(io.Writer) error) error {
 	return os.Rename(tmp.Name(), filepath.Join(dir, name))
 }
 
-func (h *Host) acquire(project string) (*helper, func(), error) {
+func (h *Host) acquire(project string, mode RunMode) (*helper, func(), error) {
 	if _, err := h.Versions(); err != nil {
 		return nil, nil, err
 	}
@@ -270,7 +280,20 @@ func (h *Host) acquire(project string) (*helper, func(), error) {
 			break
 		}
 	}
+	// Session creation can reuse any helper. A run must use the requested
+	// agent, rotating the existing helper only after its last use.
+	if current != nil && mode != "" && current.mode != mode {
+		if current.helper == nil || current.users != 0 {
+			h.mu.Unlock()
+			return nil, nil, errors.New("wait for the current project operation before switching agent modes")
+		}
+		h.removeHelperLocked(project, current)
+		current = nil
+	}
 	if current == nil {
+		if mode == "" {
+			mode = ModeDefault
+		}
 		if len(h.helpers) == 2 {
 			for path, s := range h.helpers {
 				if s.helper != nil && s.users == 0 {
@@ -283,7 +306,7 @@ func (h *Host) acquire(project string) (*helper, func(), error) {
 			h.mu.Unlock()
 			return nil, nil, errors.New("both engine slots are in use")
 		}
-		current = &slot{ready: make(chan struct{})}
+		current = &slot{ready: make(chan struct{}), mode: mode}
 		h.helpers[project] = current
 		h.wg.Add(1)
 		h.operations++
@@ -291,7 +314,7 @@ func (h *Host) acquire(project string) (*helper, func(), error) {
 		config, env, err := h.engineConfig()
 		var engine *helper
 		if err == nil {
-			engine, err = startHelper(h.ctx, h.binary, project, h.sessions, config, env)
+			engine, err = startHelper(h.ctx, h.binary, project, h.sessions, config, env, mode)
 		}
 		h.mu.Lock()
 		if err == nil && h.closed {
@@ -362,7 +385,7 @@ func (h *Host) Create(project string) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
-	engine, release, err := h.acquire(project)
+	engine, release, err := h.acquire(project, "")
 	if err != nil {
 		return Session{}, err
 	}
@@ -375,7 +398,12 @@ func (h *Host) Create(project string) (Session, error) {
 	return session, err
 }
 
-func (h *Host) Start(session Session, prompt string, acknowledge bool) error {
+func (h *Host) Start(session Session, prompt string, acknowledge bool, mode RunMode) error {
+	switch mode {
+	case ModeDefault, ModePlan, ModeBuild:
+	default:
+		return errors.New("unknown GoHarness agent mode")
+	}
 	if !sessionID.MatchString(session.ID) {
 		return errors.New("invalid session ID")
 	}
@@ -395,6 +423,9 @@ func (h *Host) Start(session Session, prompt string, acknowledge bool) error {
 	if h.closed || h.restarting || h.changingProvider {
 		return errors.New("desktop is closing or changing settings")
 	}
+	if h.exports[session.ID] {
+		return errors.New("wait for the session export to finish")
+	}
 	if len(h.runs) >= 2 {
 		return errors.New("both run slots are in use")
 	}
@@ -407,11 +438,11 @@ func (h *Host) Start(session Session, prompt string, acknowledge bool) error {
 	active := &run{cancel: cancel, checkout: checkout}
 	h.runs[session] = active
 	h.wg.Add(1)
-	go h.stream(ctx, session, active, prompt, acknowledge)
+	go h.stream(ctx, session, active, prompt, acknowledge, mode)
 	return nil
 }
 
-func (h *Host) stream(ctx context.Context, session Session, active *run, prompt string, acknowledge bool) {
+func (h *Host) stream(ctx context.Context, session Session, active *run, prompt string, acknowledge bool, mode RunMode) {
 	defer h.wg.Done()
 	defer active.cancel()
 	finished := Frame{End: true}
@@ -432,7 +463,7 @@ func (h *Host) stream(ctx context.Context, session Session, active *run, prompt 
 			finished.Pending = api.pending
 		}
 	}
-	engine, release, err := h.acquire(session.Project)
+	engine, release, err := h.acquire(session.Project, mode)
 	if err != nil {
 		fail(err)
 		return

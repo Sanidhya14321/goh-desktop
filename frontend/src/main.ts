@@ -1,4 +1,4 @@
-import { api, onAuthURL, onCommand, onFrames, type Challenge, type EngineEvent, type Frame, type Reply, type Session, type Workspace } from "./api";
+import { api, onAuthURL, onCommand, onFrames, type Challenge, type EngineEvent, type Frame, type Reply, type RunContext, type RunMode, type RunSummary, type ExportFormat, type Session, type Workspace } from "./api";
 import { runSmoke } from "./smoke";
 import { icon } from "./icons";
 import type { TerminalDock } from "./terminals";
@@ -33,10 +33,11 @@ type Child = { agent: string; status: string };
 type Tab = {
   session: Session; entries: Entry[]; children: Map<string, Child>; toolNames: Map<string, string>;
   draft: string; partial: string; running: boolean; status: string; loading: boolean;
+  mode: RunMode; runContext?: RunContext; runs: RunSummary[];
   input?: Challenge; error?: string; recovery?: unknown; lastPrompt?: string; toolProgress?: string;
 };
 const defaults: Workspace = {
-  project: "", pins: [], tabs: [], active: "", names: {}, theme: "ember", density: "comfortable",
+  project: "", pins: [], tabs: [], active: "", names: {}, modes: {}, theme: "ember", density: "comfortable",
   font_size: 13, terminal_size: 32, shell: "default", sidebar: true, activity: true, restore: true,
 };
 let prefs: Workspace = {...defaults};
@@ -63,6 +64,12 @@ let previousTab = "";
 let navigationKey = "";
 const prompt = get<HTMLTextAreaElement>("prompt");
 const transcript = get("messages");
+const agentMode = get<HTMLSelectElement>("agent-mode");
+const modeHelp: Record<RunMode, string> = {
+  default: "Use the agent configured in GoHarness.",
+  plan: "Investigate with read-only project tools.",
+  build: "Use Build tools with the current GoHarness permissions.",
+};
 
 function announce(message = "") {
   const alert = get("alert");
@@ -248,11 +255,14 @@ async function choose(path: string) {
 async function open(session: Session) {
   if (tabs.has(session.id)) { setActive(session.id); return; }
   if (tabs.size >= 30) throw new Error("Close a session tab before opening another (limit 30).");
-  const tab: Tab = { session, entries: [], children: new Map(), toolNames: new Map(), draft: "", partial: "", running: false, status: "Ready", loading: true };
+  const tab: Tab = { session, entries: [], children: new Map(), toolNames: new Map(), draft: "", partial: "", running: false, status: "Ready", loading: true, mode: prefs.modes[session.id] ?? "default", runs: [] };
   tabs.set(session.id, tab);
   setActive(session.id);
   try {
     const history = await api.history(session);
+    tab.runs = history.runs ?? [];
+    const latest = tab.runs.at(-1);
+    if (latest) tab.status = runLabel(latest);
     if (history.truncated) add(tab, { role: "system", text: "Showing recent messages. The engine retains the full session journal." });
     for (const message of history.messages) add(tab, { role: message.role, text: message.content });
   } catch (error) {
@@ -294,7 +304,10 @@ async function restoreWorkspace() {
 function applyEvent(tab: Tab, event: EngineEvent) {
   const data = event.data ?? {};
   switch (event.type) {
-    case "run_started": tab.status = "Running"; break;
+    case "run_started":
+      tab.runContext = { agent: data.agent, agent_mode: data.agent_mode };
+      tab.status = "Running";
+      break;
     case "assistant_started": tab.partial = ""; tab.toolProgress = undefined; break;
     case "assistant_updated": tab.partial = limit(tab.partial + (data.text ?? ""), 32768); break;
     case "assistant_reset": tab.partial = ""; break;
@@ -333,7 +346,13 @@ function applyEvent(tab: Tab, event: EngineEvent) {
     }
     case "error": if (typeof data.message === "string") tab.error = limit(data.message); break;
     case "run_finished":
-      tab.status = [data.status, data.outcome?.replaceAll("_", " ")].filter(Boolean).join(" · ");
+      if (!data.run_id || !tab.runs.some(run => run.run_id === data.run_id)) {
+        tab.runs.push({ ...data, agent: data.agent ?? tab.runContext?.agent,
+          agent_mode: data.agent_mode ?? tab.runContext?.agent_mode, time: Date.now() });
+        if (tab.runs.length > 12) tab.runs.shift();
+      }
+      tab.status = runLabel(data);
+      if (tab.session.id === active && runDialog.open) drawRunHistory(tab);
       tab.input = undefined;
       break;
   }
@@ -384,6 +403,11 @@ function drawSession() {
   get("session-path").title = tab.session.project;
   get("run-status").dataset.state = tab.input ? "input" : tab.running ? "active" : "idle";
   get("run-status").textContent = tab.input ? "Needs input" : tab.toolProgress ? limit(tab.toolProgress, 45) : tab.status;
+  agentMode.value = tab.mode;
+  agentMode.disabled = tab.running || tab.loading || !!tab.recovery;
+  agentMode.title = get("mode-description").textContent = modeHelp[tab.mode];
+  get<HTMLButtonElement>("run-details").disabled = tab.loading;
+  get<HTMLButtonElement>("session-export").disabled = tab.running || tab.loading;
   get<HTMLButtonElement>("send").disabled = tab.running || tab.loading || !!tab.recovery;
   get("cancel").hidden = !tab.running;
   if (switching) transcript.replaceChildren();
@@ -450,6 +474,13 @@ function drawInput(tab: Tab) {
   })();
   if (input.kind === "permission") {
     const tool = input.data.tool ?? "Tool";
+    if (tool === "plan_exit") {
+      pane.append(element("h3", "Review proposed plan"),
+        element("p", "To implement this plan, finish the current run, select Build, and send a follow-up.", "challenge-context"),
+        element("pre", (input.data.preview ?? "").replace(/^Switch to Build mode and carry out this plan\?\s*/, "")),
+        button("Continue in Plan", () => answer({ allow: false }), "primary"));
+      return;
+    }
     const edit = /(?:^|:)(?:write_file|edit_file|create_file|apply_patch)$/.test(tool);
     pane.append(element("h3", edit ? "Review proposed edit" : "Review requested action"),
       element("p", tool + " · " + nameOf(tab.session.project), "challenge-context"),
@@ -500,7 +531,7 @@ async function send(tab: Tab, text: string, acknowledge = false) {
   tab.children.clear();
   announce();
   if (!acknowledge) add(tab, { role: "user", text });
-  await Promise.resolve(api.start(tab.session, text, acknowledge)).then(() => {
+  await Promise.resolve(api.start(tab.session, text, acknowledge, tab.mode)).then(() => {
     tab.draft = "";
     if (active === tab.session.id) prompt.value = "";
   }, error => {
@@ -550,6 +581,15 @@ get<HTMLFormElement>("composer").onsubmit = event => {
   event.preventDefault();
   const tab = tabs.get(active);
   if (tab) void send(tab, prompt.value);
+};
+agentMode.onchange = () => {
+  const tab = tabs.get(active);
+  if (!tab || agentMode.disabled) return;
+  tab.mode = agentMode.value as RunMode;
+  if (tab.mode === "default") delete prefs.modes[tab.session.id];
+  else prefs.modes[tab.session.id] = tab.mode;
+  persist();
+  drawSession();
 };
 prompt.oninput = () => {
   const tab = tabs.get(active);
@@ -791,6 +831,102 @@ get<HTMLFormElement>("rename-form").onsubmit = event => {
   persist();
 };
 
+const runDialog = get<HTMLDialogElement>("run-dialog");
+const formatRunValue = (label: string) => label.replaceAll("_", " ").replace(/^./, char => char.toUpperCase());
+
+function runLabel(run: RunSummary) {
+  switch (run.outcome) {
+    case "verified": return "Verified";
+    case "unverified": return "Changes unverified";
+    case "no_changes": return "No changes";
+    case "failed_verification": return "Verification failed";
+    default: return run.status ? formatRunValue(run.status) : "Finished";
+  }
+}
+
+function drawRunHistory(tab: Tab) {
+  get("run-context").textContent = sessionLabel(tab.session) + " · " + nameOf(tab.session.project);
+  const rows = [...tab.runs].reverse().map(run => {
+    const row = element("article", "", "run-record");
+    row.append(element("h3", runLabel(run)));
+    const timestamp = run.time ? new Date(run.time).toLocaleString() : "";
+    const duration = run.duration_ms === undefined ? "" : (run.duration_ms / 1000).toFixed(1) + " s";
+    const meta = [run.agent, run.agent_mode && run.agent_mode !== run.agent ? run.agent_mode : "", run.status && formatRunValue(run.status), timestamp, duration];
+    row.append(element("p", meta.filter(Boolean).join(" · "), "muted"));
+    if (run.verification_detail?.change_tracking === "unknown") {
+      row.append(element("p", "GoHarness could not track all project changes.", "muted"));
+    }
+    const evidence = run.verification_detail?.evidence;
+    if (evidence) {
+      const check = evidence.passed === undefined ? "Check recorded" : evidence.passed ? "Check passed" : "Check failed";
+      const exit = evidence.exit_code === undefined ? "" : "Exit code " + evidence.exit_code;
+      row.append(element("p", [check, evidence.source, evidence.kind, evidence.scope, exit].filter(Boolean).join(" · ")));
+      if (evidence.command) row.append(element("pre", evidence.command));
+      if (evidence.revision) row.append(element("p", "Revision " + evidence.revision, "muted"));
+    }
+    return row;
+  });
+  get("run-list").replaceChildren(...(rows.length ? rows : [element("p", "No completed runs yet.", "muted")]));
+}
+
+function showRunHistory() {
+  const tab = tabs.get(active);
+  if (!tab || tab.loading) return;
+  drawRunHistory(tab);
+  if (!runDialog.open) runDialog.showModal();
+}
+get("run-details").onclick = showRunHistory;
+get("close-runs").onclick = () => runDialog.close();
+
+const exportDialog = get<HTMLDialogElement>("export-dialog");
+const exportFormat = get<HTMLSelectElement>("export-format");
+const exportTools = get<HTMLInputElement>("export-tools");
+const exportConfirm = get<HTMLButtonElement>("export-confirm");
+let exporting: Session | undefined;
+
+function updateExportOptions() {
+  const markdown = exportFormat.value === "markdown";
+  get("export-tools-option").hidden = !markdown;
+  get("export-format-help").textContent = markdown
+    ? "A readable copy of the conversation."
+    : "Includes tool records for importing into GoHarness.";
+}
+
+function showExport() {
+  const tab = tabs.get(active);
+  if (!tab || tab.running || tab.loading || exportConfirm.disabled) return;
+  exporting = tab.session;
+  get("export-context").textContent = sessionLabel(tab.session) + " · " + nameOf(tab.session.project);
+  get("export-error").hidden = true;
+  updateExportOptions();
+  if (!exportDialog.open) exportDialog.showModal();
+}
+get("session-export").onclick = showExport;
+get("close-export").onclick = () => { if (!exportConfirm.disabled) exportDialog.close(); };
+exportDialog.oncancel = event => { if (exportConfirm.disabled) event.preventDefault(); };
+exportFormat.onchange = updateExportOptions;
+get<HTMLFormElement>("export-form").onsubmit = event => {
+  event.preventDefault();
+  if (!exporting || exportConfirm.disabled) return;
+  const session = exporting;
+  const format = exportFormat.value as ExportFormat;
+  const includeTools = format === "markdown" && exportTools.checked;
+  const error = get("export-error");
+  error.hidden = true;
+  exportConfirm.disabled = true;
+  void action(async () => {
+    try {
+      const path = await api.exportSession(session, format, includeTools);
+      if (path) {
+        exportDialog.close();
+        announce("Session exported to " + path);
+      }
+    } finally {
+      exportConfirm.disabled = false;
+    }
+  }, message => { error.textContent = message; error.hidden = false; })();
+};
+
 const attentionDialog = get<HTMLDialogElement>("attention-dialog");
 const attentionList = get("attention-list");
 
@@ -816,7 +952,7 @@ function drawAttention() {
   if (!attentionDialog.open) return;
   const focused = (document.activeElement as HTMLElement | null)?.dataset.session;
   const rows = waiting.map(tab => {
-    const reason = tab.recovery ? "Recovery review" : tab.input?.kind === "question" ? "Question" : "Approval";
+    const reason = tab.recovery ? "Recovery review" : tab.input?.kind === "question" ? "Question" : tab.input?.data.tool === "plan_exit" ? "Plan review" : "Approval";
     const row = button("", () => {
       attentionDialog.close();
       setActive(tab.session.id);
@@ -868,6 +1004,10 @@ function getCommands(): Command[] {
   ];
   if (waitingTabs().length) candidates.push({label:"Review sessions needing input",glyph:"alert",run:showAttention});
   if (tabs.has(active)) {
+    candidates.push({label:"View run history",glyph:"history",run:showRunHistory});
+    if (!get<HTMLButtonElement>("session-export").disabled) {
+      candidates.push({label:"Export current session…",glyph:"download",run:showExport});
+    }
     candidates.push({label:"Rename current session",glyph:"edit",run:renameSession});
     candidates.push({label:"Close current session tab",glyph:"close",run:() => closeTab(tabs.get(active)!)});
   }
@@ -994,6 +1134,13 @@ void action(async () => {
         if (!active || get("session-name").textContent !== "Review project" || prefs.theme !== "graphite" || !get("terminal-dock").hidden) {
           throw new Error("the app did not restore the saved project, session, and theme");
         }
+        get("run-details").click();
+        const runText = get("run-list").textContent ?? "";
+        if (agentMode.value !== "build" || !runText.includes("No changes") ||
+            (!/Win/.test(navigator.platform) && (!runText.includes("Verified") || !runText.includes("test -f note.txt")))) {
+          throw new Error("the app did not restore the engine run evidence and selected mode");
+        }
+        get("close-runs").click();
         await api.report(JSON.stringify({step:"workspace-restored",theme:prefs.theme,session:active}),true);
         return;
       }

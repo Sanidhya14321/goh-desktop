@@ -14,6 +14,7 @@ import (
 type journalRecord struct {
 	Type string
 	Data json.RawMessage
+	Time int64
 }
 
 type Message struct {
@@ -22,8 +23,9 @@ type Message struct {
 }
 
 type History struct {
-	Messages  []Message `json:"messages"`
-	Truncated bool      `json:"truncated"`
+	Messages  []Message    `json:"messages"`
+	Truncated bool         `json:"truncated"`
+	Runs      []RunSummary `json:"runs,omitempty"`
 }
 
 func openJournal(root *os.Root, id string) (*os.File, *bufio.Reader, Session, error) {
@@ -139,9 +141,32 @@ func (h *Host) History(session Session) (History, error) {
 	}
 	scanner := bufio.NewScanner(io.LimitReader(reader, budget))
 	scanner.Buffer(make([]byte, 16<<10), budget+1)
+	var context RunContext
 	for scanner.Scan() {
 		var record journalRecord
-		if json.Unmarshal(scanner.Bytes(), &record) != nil || record.Type != "message" {
+		if json.Unmarshal(scanner.Bytes(), &record) != nil {
+			continue
+		}
+		switch record.Type {
+		case "run_started":
+			context = RunContext{}
+			_ = json.Unmarshal(record.Data, &context)
+			continue
+		case "run_finished":
+			var run RunSummary
+			if json.Unmarshal(record.Data, &run) == nil && run.Status != "" {
+				run.RunContext = context
+				run.Time = record.Time
+				run.limitDisplay()
+				history.Runs = append(history.Runs, run)
+				if len(history.Runs) > 12 {
+					history.Runs = history.Runs[1:]
+				}
+			}
+			context = RunContext{}
+			continue
+		case "message":
+		default:
 			continue
 		}
 		var msg Message

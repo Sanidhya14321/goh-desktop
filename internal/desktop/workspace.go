@@ -9,19 +9,20 @@ import (
 )
 
 type Workspace struct {
-	Project      string            `json:"project"`
-	Pins         []string          `json:"pins"`
-	Tabs         []Session         `json:"tabs"`
-	Active       string            `json:"active"`
-	Names        map[string]string `json:"names"`
-	Theme        string            `json:"theme"`
-	Density      string            `json:"density"`
-	FontSize     int               `json:"font_size"`
-	TerminalSize int               `json:"terminal_size"`
-	Shell        string            `json:"shell"`
-	Sidebar      bool              `json:"sidebar"`
-	Activity     bool              `json:"activity"`
-	Restore      bool              `json:"restore"`
+	Project      string             `json:"project"`
+	Pins         []string           `json:"pins"`
+	Tabs         []Session          `json:"tabs"`
+	Active       string             `json:"active"`
+	Names        map[string]string  `json:"names"`
+	Modes        map[string]RunMode `json:"modes"`
+	Theme        string             `json:"theme"`
+	Density      string             `json:"density"`
+	FontSize     int                `json:"font_size"`
+	TerminalSize int                `json:"terminal_size"`
+	Shell        string             `json:"shell"`
+	Sidebar      bool               `json:"sidebar"`
+	Activity     bool               `json:"activity"`
+	Restore      bool               `json:"restore"`
 }
 
 func (h *Host) Workspace() (Workspace, error) {
@@ -102,7 +103,16 @@ func sanitizeWorkspace(w Workspace) Workspace {
 			break
 		}
 	}
-	w.Pins, w.Tabs, w.Names = pins, tabs, names
+	modes := make(map[string]RunMode)
+	for id, mode := range w.Modes {
+		if sessionID.MatchString(id) && (mode == "plan" || mode == "build") {
+			modes[id] = mode
+		}
+		if len(modes) == 500 {
+			break
+		}
+	}
+	w.Pins, w.Tabs, w.Names, w.Modes = pins, tabs, names, modes
 	return w
 }
 

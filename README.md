@@ -24,6 +24,14 @@ When focused in an Ubuntu or Windows terminal, use Ctrl+Shift+K for the palette.
 
 Two GoHarness runs can be active across separate projects or Git worktrees. Two sessions in the same checkout share one writer slot. Up to 12 interactive terminals can be open, with up to two visible in the dock. Terminals are user-operated OS shells and can edit the same files as GoHarness. Quit closes live terminals, and in-app updates wait for active runs and terminals to finish before restarting. Shell processes and their scrollback are tied to the current app launch.
 
+## Plan, verify, and export
+
+- Choose **Plan** beside Send to investigate with GoHarness’s read-only project tools. When ready to implement, finish the run, choose **Build**, and send a follow-up in the same session. **Configured agent** uses your GoHarness settings. The selection is saved per session.
+- Open **Run history** from the session header or command palette to see recent outcomes and the checks GoHarness recorded. A finished run can have unverified changes. When the engine records a check, its command, result, and available details appear in the run history.
+- Use **Export session** from the session header or command palette once the run ends. Markdown omits tool output by default. The portable JSON archive can be imported by GoHarness. Choose a new filename in the native Save dialog and review the output before sharing it.
+
+The [harness feature research, plan, and verification](reports/Desktop%20harness%20features.md) covers the engine interfaces and the packaged tests.
+
 ## Development
 
 Use Go 1.27.4, Node 22.23.4, npm, Python 3.9 or later, and an authenticated GitHub CLI for exact engine asset and provenance downloads. macOS builds need Xcode Command Line Tools. Ubuntu 24.04 builds need `build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev`. Windows 11 builds need NSIS on PATH or `MAKENSIS` set to its absolute path. Windows uses the system WebView2 Evergreen runtime.
@@ -41,18 +49,18 @@ On this workspace’s Mac, the upstream checkout already contains the required G
 
 ### Build and test a development package
 
-Run the pair of commands for your target with `v1.1.0` as the upstream release and `0.1.1` as the desktop version.
+Run the pair of commands for your target with `v1.1.0` as the upstream release and `0.1.4` as the desktop version.
 
 ```sh
 # macOS universal
 python3 scripts/fetch-engine.py v1.1.0 darwin-universal .cache/engine-mac
-python3 scripts/package.py --target darwin-universal --engine .cache/engine-mac --engine-tag v1.1.0 --version 0.1.1 --output out/dev-mac
+python3 scripts/package.py --target darwin-universal --engine .cache/engine-mac --engine-tag v1.1.0 --version 0.1.4 --output out/dev-mac
 python3 scripts/smoke.py out/dev-mac/goh-desktop-macos-universal.dmg --launcher --mode measure
 
 # Ubuntu 24.04 or later, use amd64 or arm64 to match the machine
 arch="$(dpkg --print-architecture)"
 python3 scripts/fetch-engine.py v1.1.0 "linux-$arch" .cache/engine-linux
-python3 scripts/package.py --target "linux-$arch" --engine .cache/engine-linux --engine-tag v1.1.0 --version 0.1.1 --output out/dev-linux
+python3 scripts/package.py --target "linux-$arch" --engine .cache/engine-linux --engine-tag v1.1.0 --version 0.1.4 --output out/dev-linux
 sudo apt install "./out/dev-linux/goh-desktop-ubuntu-$arch.deb"
 xvfb-run -a dbus-run-session -- python3 scripts/smoke.py "out/dev-linux/goh-desktop-ubuntu-$arch.deb" --installed --launcher --mode measure
 ```
@@ -61,9 +69,11 @@ xvfb-run -a dbus-run-session -- python3 scripts/smoke.py "out/dev-linux/goh-desk
 # Windows PowerShell, set $arch to amd64 or arm64
 $arch = "amd64"
 python scripts/fetch-engine.py v1.1.0 "windows-$arch" .cache/engine-windows
-python scripts/package.py --target "windows-$arch" --engine .cache/engine-windows --engine-tag v1.1.0 --version 0.1.1 --output out/dev-windows
+python scripts/package.py --target "windows-$arch" --engine .cache/engine-windows --engine-tag v1.1.0 --version 0.1.4 --output out/dev-windows
 python scripts/smoke.py "out/dev-windows/goh-desktop-windows-$arch-installer.exe"
 ```
+
+For the workspace and harness features, repeat the smoke command with `--mode workspace`. On Windows, add that option to the installer smoke command.
 
 Run `python3 scripts/update-smoke.py --target darwin-universal --engine .cache/engine-mac --upstream ../goh --work "$(mktemp -d /tmp/goh-desktop-update.XXXXXX)"` for the macOS version transition and tamper fixture. On Windows, use the same script with the native Windows target and a new work folder. The fixture uses an ephemeral signing key, the exact upstream source tag archived outside the engine checkout, and a locally stamped version for the new engine. To compare standalone process measurements, run `python3 scripts/measure-engine.py /absolute/path/to/goh`.
 

@@ -43,14 +43,16 @@ class ScriptedModel(BaseHTTPRequestHandler):
         if not isinstance(prompt,str):
             prompt = " ".join(part.get("text","") for part in prompt if isinstance(part,dict))
         tools = {t["function"]["name"] for t in req.get("tools", [])}
-        has_result = any(m["role"] == "tool" for m in messages[user+1:])
+        tool_results = sum(m["role"] == "tool" for m in messages[user+1:])
         role = {"role":"assistant"}
         name, arguments = "", {}
         if "fixture slow" in prompt:
             time.sleep(7)
-        if not has_result:
+        if not tool_results:
             if "fixture write" in prompt and "write_file" in tools:
                 name, arguments = "write_file", {"path":"note.txt","content":"scripted approved\n"}
+            elif "fixture plan review" in prompt and "plan_exit" in tools:
+                name, arguments = "plan_exit", {"plan":"Inspect fixture files before editing."}
             elif "fixture question" in prompt and "question" in tools:
                 name, arguments = "question", {"questions":[{
                     "header":"Color","question":"Which color?","options":[
@@ -59,11 +61,16 @@ class ScriptedModel(BaseHTTPRequestHandler):
                 }]}
             elif "fixture child" in prompt and "task" in tools:
                 name, arguments = "task", {"description":"Inspect this fixture folder", "prompt":"Reply with fixture child done", "subagent_type":"explore"}
+        elif tool_results == 1 and "fixture write and verify" in prompt and "shell" in tools:
+            name, arguments = "shell", {"command":"test -f note.txt"}
         if name:
             role["tool_calls"] = [{"id":"fixture_" + name,"type":"function",
                                   "function":{"name":name,"arguments":json.dumps(arguments)}}]
         else:
-            role["content"] = "scripted response ✓"
+            if "fixture inspect tools" in prompt:
+                role["content"] = "Build tools available" if {"write_file", "shell"} <= tools else "Plan tools only"
+            else:
+                role["content"] = "scripted response ✓"
         finish = "tool_calls" if name else "stop"
         usage = {"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}
         if req.get("stream"):
@@ -277,6 +284,12 @@ def main():
                 restored = execute(binary,root,endpoint,"workspace-reopen",args.launcher)
                 assert restored["session"] == results["session"], "a different session was restored"
                 results["reopened"] = restored["step"] == "workspace-restored"
+                transcript = (root / "session-test.md").read_text(encoding="utf-8")
+                assert all(line in transcript for line in ("Plan tools only", "Build tools available")), "Markdown transcript lost mode turns"
+                archive = json.loads((root / "session-test.json").read_text(encoding="utf-8"))
+                assert archive["format"] == "independent-harness/session" and archive["source_session_id"] == results["session"], "invalid session archive"
+                assert any(record["type"] == "message" and record["data"]["role"] == "tool" for record in archive["records"]), "archive lost tool records"
+                results["exports_checked"] = True
         except Exception:
             print((root / "desktop.log").read_text(errors="replace")[-12000:])
             raise

@@ -12,6 +12,8 @@ const paths: Record<string, string> = {
   arrow: "M5 12h14m-5-5 5 5-5 5",
   close: "m6 6 12 12M18 6 6 18",
   activity: "M3 12h4l3-6 4 12 2-6h5",
+  history: "M3 12a9 9 0 1 1 3 6.7M3 6v6h6m3-5v5l4 2",
+  download: "M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4",
   session: "M4 5h16v11H9l-5 4z",
   pin: "m10 4 10 10m-8-8-4 4-3 1 8 8 1-3 4-4M5 19l4-4",
   terminalExit: "M4 4h16v16H4z",

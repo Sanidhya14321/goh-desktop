@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+
+	"github.com/Sanidhya14321/goh-desktop/internal/desktop"
 )
 
 type smokeConfig struct {
@@ -34,4 +37,15 @@ func (s *Service) SmokeReport(report string, quit bool) error {
 		s.app.Quit()
 	}
 	return nil
+}
+
+func (s *Service) SmokeExportSession(session desktop.Session, format string, includeTools bool) error {
+	if s.smoke == nil || s.smoke.Mode != "workspace" {
+		return errors.New("an active workspace fixture is required")
+	}
+	name := "session-test.md"
+	if format == "json" {
+		name = "session-test.json"
+	}
+	return s.host.Export(session, format, includeTools, filepath.Join(filepath.Dir(s.smoke.Report), name))
 }

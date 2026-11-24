@@ -57,6 +57,8 @@
           </div>
           <div class="session-tools">
             <div id="run-status" class="status" role="status"></div>
+            <button id="run-details" class="icon-button" title="Run history" aria-label="Run history" aria-haspopup="dialog"><span data-icon="history"></span></button>
+            <button id="session-export" class="icon-button" title="Export session" aria-label="Export session" aria-haspopup="dialog"><span data-icon="download"></span></button>
             <button id="rename-session" class="icon-button" title="Rename session" aria-label="Rename session"><span data-icon="edit"></span></button>
             <button id="activity-toggle" class="icon-button" title="Toggle agent activity" aria-label="Toggle agent activity"><span data-icon="activity"></span></button>
           </div>
@@ -71,6 +73,13 @@
                 <textarea id="prompt" rows="2" placeholder="Message GoHarness"></textarea>
                 <button id="starter-prompt" class="starter-prompt quiet" type="button" hidden>Explain this project</button>
                 <div class="compose-actions">
+                  <label for="agent-mode" class="sr-only">Agent mode</label>
+                  <select id="agent-mode" aria-describedby="mode-description">
+                    <option value="default">Configured agent</option>
+                    <option value="plan">Plan</option>
+                    <option value="build">Build</option>
+                  </select>
+                  <span id="mode-description" class="sr-only"></span>
                   <span id="compose-key" class="muted"></span>
                   <button id="cancel" type="button" class="quiet" hidden>Cancel run</button>
                   <button id="send" type="submit" class="primary">Send <span data-icon="arrow"></span></button>
@@ -114,6 +123,27 @@
     <span id="versions"></span><button id="updates" class="status-button">Updates</button>
   </footer>
 
+  <dialog id="run-dialog" aria-labelledby="run-title">
+    <div class="dialog-heading"><h2 id="run-title">Run history</h2><button id="close-runs" class="icon-button" aria-label="Close run history"><span data-icon="close"></span></button></div>
+    <p id="run-context" class="muted"></p>
+    <div id="run-list" class="run-list"></div>
+  </dialog>
+  <dialog id="export-dialog" aria-labelledby="export-title">
+    <form id="export-form">
+      <div class="dialog-heading"><h2 id="export-title">Export session</h2><button id="close-export" type="button" class="icon-button" aria-label="Close export"><span data-icon="close"></span></button></div>
+      <p id="export-context" class="muted"></p>
+      <label for="export-format">Format</label>
+      <select id="export-format">
+        <option value="markdown">Markdown transcript (.md)</option>
+        <option value="json">Portable GoHarness archive (.json)</option>
+      </select>
+      <label id="export-tools-option" class="export-option"><input id="export-tools" type="checkbox"> Include tool output</label>
+      <p id="export-format-help" class="muted"></p>
+      <p class="muted">Exports can contain sensitive project content. Review them before sharing.</p>
+      <p id="export-error" role="alert" hidden></p>
+      <div class="button-row"><button id="export-confirm" type="submit" class="primary">Choose save location…</button></div>
+    </form>
+  </dialog>
   <dialog id="attention-dialog" aria-labelledby="attention-title">
     <div class="dialog-heading"><h2 id="attention-title">Needs input</h2><button id="close-attention" class="icon-button" aria-label="Close pending inputs"><span data-icon="close"></span></button></div>
     <div id="attention-list"></div>

@@ -152,6 +152,58 @@ export async function checkWorkspace(
   [...challenge.querySelectorAll<HTMLButtonElement>("button")].find(control => control.textContent === "Dismiss")!.click();
   await waitFor(() => get("attention").hidden,"the resolved question stayed in the list");
   await open(created);
+  const mode = get<HTMLSelectElement>("agent-mode");
+  const idle = () => get("cancel").hidden && !mode.disabled;
+  const changeMode = (value: string) => {
+    mode.value = value;
+    mode.dispatchEvent(new Event("change"));
+  };
+  const includesMessage = (text: string) => [...get("messages").querySelectorAll(".assistant")].some(node => node.textContent?.includes(text));
+  await waitFor(idle, "first Build run did not finish");
+  changeMode("plan");
+  run("fixture plan review");
+  await waitFor(() => challenge.textContent!.includes("Review proposed plan"), "Plan handoff was not presented for review");
+  if (!mode.disabled || !challenge.textContent!.includes("Inspect fixture files before editing.")) throw new Error("Plan preview or active mode lock was missing");
+  let blocked = false;
+  try { await api.smokeExportSession(created, "markdown", false); }
+  catch (error) { blocked = String(error).includes("finish before exporting"); }
+  if (!blocked) throw new Error("active-session export was allowed");
+  [...challenge.querySelectorAll<HTMLButtonElement>("button")].find(control => control.textContent === "Continue in Plan")!.click();
+  await waitFor(idle, "Plan did not finish after the manual review");
+  run("fixture inspect tools");
+  await waitFor(() => idle() && includesMessage("Plan tools only"), "engine did not restrict Plan tools");
+  changeMode("build");
+  run("fixture inspect tools");
+  await waitFor(() => idle() && includesMessage("Build tools available"), "engine did not offer Build tools on the same session");
+  const posix = !/Win/.test(navigator.platform);
+  if (posix) {
+    run("fixture write and verify");
+    for (const preview of ["Review proposed edit", "test -f note.txt"]) {
+      await waitFor(() => !challenge.hidden && challenge.textContent!.includes(preview), "missing verification fixture approval");
+      [...challenge.querySelectorAll<HTMLButtonElement>("button")].find(control => control.textContent === "Allow once")!.click();
+    }
+    await waitFor(idle, "verification run did not complete");
+  }
+  get("run-details").click();
+  const runText = get("run-list").textContent ?? "";
+  if (!runText.includes("No changes") || !runText.includes("plan") || !runText.includes("build") ||
+      (posix && (!runText.includes("Verified") || !runText.includes("test -f note.txt") || !runText.includes("Exit code 0")))) {
+    throw new Error("run history did not show the engine's outcomes and evidence: " + runText);
+  }
+  get("close-runs").click();
+  get("session-export").click();
+  const format = get<HTMLSelectElement>("export-format");
+  if (format.value !== "markdown" || get<HTMLInputElement>("export-tools").checked) throw new Error("export did not default to a transcript without tools");
+  format.value = "json";
+  format.dispatchEvent(new Event("change"));
+  if (!get("export-tools-option").hidden) throw new Error("portable archive offered a Markdown-only option");
+  get("close-export").click();
+  await api.smokeExportSession(created, "markdown", false);
+  await api.smokeExportSession(created, "json", false);
+  let collision = false;
+  try { await api.smokeExportSession(created, "markdown", false); }
+  catch (error) { collision = String(error).includes("must not exist"); }
+  if (!collision) throw new Error("export replaced an existing transcript");
   await saveQueue();
   const savedWorkspace = await api.workspace();
   if (savedWorkspace.names[created.id] !== "Review project" ||

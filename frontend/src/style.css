@@ -276,3 +276,12 @@ dialog p { color: var(--muted); overflow-wrap: anywhere; margin-bottom: 8px; }
 .terminal-search #terminal-match { margin-left:auto; color:var(--muted); font-size:.8rem; white-space:nowrap; }
 .terminal-tab.current.focused { border-color:var(--accent); }
 .terminal-surface.focused .terminal-location { color:var(--accent); }
+
+#agent-mode { margin-right: auto; max-width: 10rem; width: auto; padding: .3rem .45rem; font: inherit; }
+.compose-actions { flex-wrap: wrap; }
+.run-list { display: grid; gap: .6rem; margin-top: 1rem; }
+.run-record { border: 1px solid var(--rule); border-radius: .5rem; padding: .75rem; }
+.run-record h3, .run-record p { margin: 0 0 .35rem; }
+.run-record pre { margin: .5rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.export-option { display: flex; align-items: center; gap: .5rem; margin-top: .75rem; }
+#export-error { overflow-wrap: anywhere; }

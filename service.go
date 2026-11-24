@@ -22,8 +22,8 @@ func (s *Service) Create(dir string) (desktop.Session, error)     { return s.hos
 func (s *Service) History(session desktop.Session) (desktop.History, error) {
 	return s.host.History(session)
 }
-func (s *Service) Start(session desktop.Session, prompt string, acknowledge bool) error {
-	return s.host.Start(session, prompt, acknowledge)
+func (s *Service) Start(session desktop.Session, prompt string, acknowledge bool, mode desktop.RunMode) error {
+	return s.host.Start(session, prompt, acknowledge, mode)
 }
 func (s *Service) Answer(session desktop.Session, input string, reply desktop.Reply) error {
 	return s.host.Answer(session, input, reply)
@@ -57,3 +57,21 @@ func (s *Service) ResizeTerminal(id string, cols, rows int) error {
 	return s.terminals.Resize(id, cols, rows)
 }
 func (s *Service) CloseTerminal(id string) error { return s.terminals.Close(id) }
+
+func (s *Service) ExportSession(session desktop.Session, format string, includeTools bool) (string, error) {
+	filename := "goh-session.md"
+	pattern := "*.md"
+	title := "Markdown transcript"
+	if format == "json" {
+		filename, pattern, title = "goh-session.json", "*.json", "GoHarness session archive"
+	}
+	path, err := s.app.Dialog.SaveFile().AttachToWindow(s.window).SetFilename(filename).
+		AddFilter(title, pattern).SetButtonText("Export").PromptForSingleSelection()
+	if err != nil || path == "" {
+		return path, err
+	}
+	if err := s.host.Export(session, format, includeTools, path); err != nil {
+		return "", err
+	}
+	return path, nil
+}

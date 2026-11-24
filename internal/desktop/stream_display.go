@@ -6,10 +6,24 @@ import "encoding/json"
 // bounded and send only the fields consumed by the session view.
 func displayEvent(event *Event) bool {
 	switch event.Type {
-	case "run_started", "assistant_started", "assistant_reset", "permission_resolved":
+	case "run_started":
+		var context RunContext
+		_ = json.Unmarshal(event.Data, &context)
+		event.Data, _ = json.Marshal(context)
+		return true
+	case "run_finished":
+		var result RunSummary
+		if err := json.Unmarshal(event.Data, &result); err != nil {
+			return false
+		}
+		result.ID = event.RunID
+		result.limitDisplay()
+		event.Data, _ = json.Marshal(result)
+		return true
+	case "assistant_started", "assistant_reset", "permission_resolved":
 		event.Data = nil
 		return true
-	case "assistant_updated", "assistant_completed", "tool_progress", "tool_started", "tool_updated", "tool_finished", "subagent_started", "subagent_finished", "subagent_event", "run_finished", "error":
+	case "assistant_updated", "assistant_completed", "tool_progress", "tool_started", "tool_updated", "tool_finished", "subagent_started", "subagent_finished", "subagent_event", "error":
 	default:
 		return false
 	}
@@ -22,7 +36,6 @@ func displayEvent(event *Event) bool {
 		Tool    string          `json:"tool,omitempty"`
 		Target  string          `json:"target,omitempty"`
 		Status  string          `json:"status,omitempty"`
-		Outcome string          `json:"outcome,omitempty"`
 		Message json.RawMessage `json:"message,omitempty"`
 		Result  *struct {
 			Content string `json:"content"`

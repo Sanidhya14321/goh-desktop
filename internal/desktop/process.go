@@ -58,13 +58,17 @@ type engineInfo struct {
 	SessionDir string `json:"session_dir"`
 	Model      string `json:"model"`
 	Protocol   string `json:"protocol"`
+	Agent      string `json:"agent"`
 }
 
-func startHelper(ctx context.Context, binary, project, sessions, config string, env []string) (*helper, error) {
+func startHelper(ctx context.Context, binary, project, sessions, config string, env []string, mode RunMode) (*helper, error) {
 	token := hex.EncodeToString(randBytes(32))
 	args := []string{"serve", "--listen", "127.0.0.1:0", "--project", project, "--session-dir", sessions}
 	if config != "" {
 		args = append(args, "--config", config)
+	}
+	if mode != ModeDefault {
+		args = append(args, "--agent", string(mode))
 	}
 	cmd := exec.Command(binary, args...)
 	// Keep the helper's initial working directory out of untrusted projects.
@@ -135,6 +139,10 @@ func startHelper(ctx context.Context, binary, project, sessions, config string, 
 	if !samePath(info.Project, project) || !samePath(info.SessionDir, sessions) || info.Protocol == "" {
 		h.stop()
 		return nil, errors.New("GoHarness returned incompatible v1 project information")
+	}
+	if mode != ModeDefault && info.Agent != string(mode) {
+		h.stop()
+		return nil, errors.New("GoHarness did not select the requested agent")
 	}
 	return h, nil
 }
