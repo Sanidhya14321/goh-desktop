@@ -284,6 +284,7 @@ dialog p { color: var(--muted); overflow-wrap: anywhere; margin-bottom: 8px; }
 .run-record h3, .run-record p { margin: 0 0 .35rem; }
 .run-record pre { margin: .5rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .export-option { display: flex; align-items: center; gap: .5rem; margin-top: .75rem; }
+.export-option input { width: auto; flex: none; accent-color: var(--accent); }
 #export-error { overflow-wrap: anywhere; }
 
 .message-attachments { display: flex; flex-wrap: wrap; gap: .35rem; list-style: none; margin: .5rem 0 0; padding: 0; }

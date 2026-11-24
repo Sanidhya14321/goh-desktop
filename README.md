@@ -50,18 +50,18 @@ On this workspace’s Mac, the upstream checkout already contains the required G
 
 ### Build and test a development package
 
-Run the pair of commands for your target with `v1.1.0` as the upstream release and `0.1.5` as the desktop version.
+Run the pair of commands for your target with `v1.1.0` as the upstream release and `0.1.6` as the desktop version.
 
 ```sh
 # macOS universal
 python3 scripts/fetch-engine.py v1.1.0 darwin-universal .cache/engine-mac
-python3 scripts/package.py --target darwin-universal --engine .cache/engine-mac --engine-tag v1.1.0 --version 0.1.5 --output out/dev-mac
+python3 scripts/package.py --target darwin-universal --engine .cache/engine-mac --engine-tag v1.1.0 --version 0.1.6 --output out/dev-mac
 python3 scripts/smoke.py out/dev-mac/goh-desktop-macos-universal.dmg --launcher --mode measure
 
 # Ubuntu 24.04 or later, use amd64 or arm64 to match the machine
 arch="$(dpkg --print-architecture)"
 python3 scripts/fetch-engine.py v1.1.0 "linux-$arch" .cache/engine-linux
-python3 scripts/package.py --target "linux-$arch" --engine .cache/engine-linux --engine-tag v1.1.0 --version 0.1.5 --output out/dev-linux
+python3 scripts/package.py --target "linux-$arch" --engine .cache/engine-linux --engine-tag v1.1.0 --version 0.1.6 --output out/dev-linux
 sudo apt install "./out/dev-linux/goh-desktop-ubuntu-$arch.deb"
 xvfb-run -a dbus-run-session -- python3 scripts/smoke.py "out/dev-linux/goh-desktop-ubuntu-$arch.deb" --installed --launcher --mode measure
 ```
@@ -70,11 +70,11 @@ xvfb-run -a dbus-run-session -- python3 scripts/smoke.py "out/dev-linux/goh-desk
 # Windows PowerShell, set $arch to amd64 or arm64
 $arch = "amd64"
 python scripts/fetch-engine.py v1.1.0 "windows-$arch" .cache/engine-windows
-python scripts/package.py --target "windows-$arch" --engine .cache/engine-windows --engine-tag v1.1.0 --version 0.1.5 --output out/dev-windows
+python scripts/package.py --target "windows-$arch" --engine .cache/engine-windows --engine-tag v1.1.0 --version 0.1.6 --output out/dev-windows
 python scripts/smoke.py "out/dev-windows/goh-desktop-windows-$arch-installer.exe"
 ```
 
-For the workspace and harness features, repeat the smoke command with `--mode workspace`. On Windows, add that option to the installer smoke command.
+Repeat the smoke command with `--mode workspace` for desktop workflows or `--mode audit` for provider failures, rules, contention, recovery, and idle cleanup. On Windows, use the development installer path with the same mode option. The [end-to-end audit](docs/END-TO-END.md) lists coverage, tested platforms, and remaining live checks.
 
 Run `python3 scripts/update-smoke.py --target darwin-universal --engine .cache/engine-mac --upstream ../goh --work "$(mktemp -d /tmp/goh-desktop-update.XXXXXX)"` for the macOS version transition and tamper fixture. On Windows, use the same script with the native Windows target and a new work folder. The fixture uses an ephemeral signing key, the exact upstream source tag archived outside the engine checkout, and a locally stamped version for the new engine. To compare standalone process measurements, run `python3 scripts/measure-engine.py /absolute/path/to/goh`.
 

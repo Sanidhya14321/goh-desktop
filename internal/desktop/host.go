@@ -311,10 +311,10 @@ func (h *Host) acquire(project string, mode RunMode) (*helper, func(), error) {
 		h.wg.Add(1)
 		h.operations++
 		h.mu.Unlock()
-		config, env, err := h.engineConfig()
+		env, err := h.engineEnv()
 		var engine *helper
 		if err == nil {
-			engine, err = startHelper(h.ctx, h.binary, project, h.sessions, config, env, mode)
+			engine, err = startHelper(h.ctx, h.binary, project, h.sessions, env, mode)
 		}
 		h.mu.Lock()
 		if err == nil && h.closed {

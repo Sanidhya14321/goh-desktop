@@ -61,12 +61,9 @@ type engineInfo struct {
 	Agent      string `json:"agent"`
 }
 
-func startHelper(ctx context.Context, binary, project, sessions, config string, env []string, mode RunMode) (*helper, error) {
+func startHelper(ctx context.Context, binary, project, sessions string, env []string, mode RunMode) (*helper, error) {
 	token := hex.EncodeToString(randBytes(32))
 	args := []string{"serve", "--listen", "127.0.0.1:0", "--project", project, "--session-dir", sessions}
-	if config != "" {
-		args = append(args, "--config", config)
-	}
 	if mode != ModeDefault {
 		args = append(args, "--agent", string(mode))
 	}

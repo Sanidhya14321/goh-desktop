@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,37 +45,35 @@ func (h *Host) readProvider() (Provider, error) {
 	return p, err
 }
 
-func (h *Host) engineConfig() (string, []string, error) {
+// engineEnv layers only provider settings through GoHarness's supported
+// overrides. The engine still loads the user's permissions, hooks and agents.
+func (h *Host) engineEnv() ([]string, error) {
 	env := processEnv()
 	p, err := h.readProvider()
 	if err != nil || p.Protocol == "" {
-		return "", env, err
+		return env, err
 	}
 	window := p.ContextWindow
 	if window == 0 {
 		window = 32768
 	}
-	config := map[string]any{"protocol": p.Protocol, "model": p.Model, "context_window": window}
-	if p.BaseURL != "" {
-		config["base_url"] = p.BaseURL
-	}
-	if p.Key != "" {
-		config["api_key_env"] = providerKeyEnv
-		env = append(env, providerKeyEnv+"="+p.Key)
-	}
 	filtered := env[:0]
 	for _, entry := range env {
 		key, _, _ := strings.Cut(entry, "=")
 		switch strings.ToUpper(key) {
-		case "HARNESS_PROFILE", "HARNESS_MODEL", "HARNESS_PROTOCOL", "HARNESS_ENDPOINT", "HARNESS_BASE_URL", "HARNESS_API_KEY_ENV", "HARNESS_CONTEXT_WINDOW":
+		case "HARNESS_MODEL", "HARNESS_PROTOCOL", "HARNESS_ENDPOINT", "HARNESS_BASE_URL", "HARNESS_API_KEY_ENV", "HARNESS_CONTEXT_WINDOW":
 		default:
 			filtered = append(filtered, entry)
 		}
 	}
-	if err := writeJSON(h.root, "engine-config.json", config); err != nil {
-		return "", nil, err
-	}
-	return filepath.Join(h.root, "engine-config.json"), filtered, nil
+	return append(filtered,
+		"HARNESS_PROTOCOL="+p.Protocol,
+		"HARNESS_BASE_URL="+p.BaseURL,
+		"HARNESS_MODEL="+p.Model,
+		"HARNESS_CONTEXT_WINDOW="+strconv.Itoa(window),
+		"HARNESS_API_KEY_ENV="+providerKeyEnv,
+		providerKeyEnv+"="+p.Key,
+	), nil
 }
 
 func (h *Host) ProviderStatus() (ProviderStatus, error) {

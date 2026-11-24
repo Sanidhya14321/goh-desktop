@@ -31,5 +31,5 @@ jobs:
       target: ${{ matrix.target }}
       engine_tag: ${{ inputs.engine_tag || 'v1.1.0' }}
       channel: dev
-      version: 0.1.1
+      version: 0.1.6
       sign: false

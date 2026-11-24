@@ -34,7 +34,7 @@ type Tab = {
   session: Session; entries: Entry[]; children: Map<string, Child>; toolNames: Map<string, string>;
   draft: string; partial: string; running: boolean; status: string; loading: boolean;
   mode: RunMode; runContext?: RunContext; runs: RunSummary[];
-  input?: Challenge; error?: string; recovery?: unknown; lastPrompt?: string; toolProgress?: string;
+  input?: Challenge; error?: string; recovery?: unknown; sending?: { text: string; recovery?: unknown }; toolProgress?: string;
 };
 const defaults: Workspace = {
   project: "", pins: [], tabs: [], active: "", names: {}, modes: {}, theme: "ember", density: "comfortable",
@@ -275,16 +275,20 @@ async function open(session: Session) {
 
 async function restoreWorkspace() {
   let prior = prefs.project;
+  let missingProject = false;
   if (prior) {
     try {
       project = prior = await api.select(prior);
       await refreshSessions(project);
     } catch {
       project = prior = "";
-      announce("The previously selected folder is unavailable. Choose another project.");
+      missingProject = true;
     }
   }
-  if (!prefs.restore) return;
+  const warnMissing = () => {
+    if (missingProject) announce("The previously selected folder is unavailable. Choose another project.");
+  };
+  if (!prefs.restore) { warnMissing(); return; }
   // A missing folder must not prevent tabs from other projects from reopening.
   const groups = [...new Set(prefs.tabs.map(tab => tab.project))];
   const valid = new Set((await Promise.all(groups.map(async path => {
@@ -299,12 +303,23 @@ async function restoreWorkspace() {
     setActive([...tabs.values()].reverse().find(tab => tab.session.project === prior)?.session.id ?? "");
     await refreshSessions(prior);
   }
+  warnMissing();
 }
 
 function applyEvent(tab: Tab, event: EngineEvent) {
   const data = event.data ?? {};
   switch (event.type) {
     case "run_started":
+      if (tab.sending) {
+        const { text } = tab.sending;
+        add(tab, { role: "user", text });
+        if (tab.draft === text) {
+          tab.draft = "";
+          if (active === tab.session.id) prompt.value = "";
+        }
+        tab.sending = undefined;
+      }
+      tab.children.clear();
       tab.runContext = { agent: data.agent, agent_mode: data.agent_mode };
       tab.status = "Running";
       break;
@@ -380,7 +395,8 @@ onFrames((id, frames) => {
       tab.input = undefined;
       tab.toolProgress = undefined;
       if (frame.error) { tab.error = frame.error; tab.status = frame.error === "Cancelled" ? "Cancelled" : "Stopped"; }
-      if (frame.pending) tab.recovery = frame.pending;
+      tab.recovery = frame.pending ?? tab.sending?.recovery;
+      tab.sending = undefined;
     }
   }
   if (id === active || frames.some((frame: Frame) => frame.input || frame.end)) queueRender();
@@ -475,8 +491,10 @@ function drawInput(tab: Tab) {
   pane.replaceChildren();
   pane.hidden = !key;
   if (tab.recovery) {
-    pane.append(element("h3", "Review uncertain effects"), element("pre", limit(JSON.stringify(tab.recovery, null, 2))),
-      button("Acknowledge and retry", action(() => send(tab, tab.lastPrompt ?? "", true)), "primary"));
+    pane.append(element("h3", "Review uncertain effects"),
+      element("p", "Inspect the project for changes from the interrupted tools before retrying. You can edit the message below."),
+      element("pre", limit(JSON.stringify(tab.recovery, null, 2))),
+      button("Acknowledge and retry", action(() => send(tab, tab.draft, true)), "primary"));
     return;
   }
   if (!input) return;
@@ -530,37 +548,54 @@ function drawInput(tab: Tab) {
       return { group, custom, multiple: question.multiple };
     });
     const actions = element("div", "", "button-row");
-    actions.append(button("Submit answers", () => answer({ answers: groups.map(({ group, custom, multiple }) => {
-      const chosen = [...group.querySelectorAll<HTMLInputElement>("input:checked")].map(choice => choice.value);
-      if (!custom.value.trim()) return chosen;
-      return multiple ? [...chosen, custom.value.trim()] : [custom.value.trim()];
-    }) }), "primary"), button("Dismiss", () => answer({ dismiss: true })));
+    const error = element("p", "", "challenge-context");
+    error.setAttribute("role", "alert");
+    actions.append(button("Submit answers", () => {
+      const answers = groups.map(({ group, custom, multiple }) => {
+        const chosen = [...group.querySelectorAll<HTMLInputElement>("input:checked")].map(choice => choice.value);
+        if (!custom.value.trim()) return chosen;
+        return multiple ? [...chosen, custom.value.trim()] : [custom.value.trim()];
+      });
+      const missing = answers.findIndex(group => !group.length);
+      if (missing !== -1) {
+        error.textContent = "Choose or enter an answer for each question.";
+        groups[missing].group.querySelector("input")?.focus();
+        return;
+      }
+      error.textContent = "";
+      answer({ answers });
+    }, "primary"), button("Dismiss", () => answer({ dismiss: true })));
+    pane.append(error);
     pane.append(actions);
   }
 }
 
 async function send(tab: Tab, text: string, acknowledge = false) {
-  if (!text.trim() || tab.running || tab.loading || (tab.recovery && !acknowledge)) return;
+  if (tab.running || tab.loading || (tab.recovery && !acknowledge)) return;
+  if (!text.trim()) {
+    if (acknowledge) {
+      announce("Enter a message to continue after reviewing uncertain effects.");
+      prompt.focus();
+    }
+    return;
+  }
   tab.status = "Starting";
   tab.running = true;
   tab.error = undefined;
-  const recovery = tab.recovery;
+  tab.sending = { text, recovery: tab.recovery };
   tab.recovery = undefined;
-  tab.lastPrompt = text;
-  tab.children.clear();
   announce();
-  if (!acknowledge) add(tab, { role: "user", text });
-  await Promise.resolve(api.start(tab.session, text, acknowledge, tab.mode)).then(() => {
-    tab.draft = "";
-    if (active === tab.session.id) prompt.value = "";
-  }, error => {
+  queueRender();
+  try {
+    await api.start(tab.session, text, acknowledge, tab.mode);
+  } catch (err) {
     tab.running = false;
     tab.status = "Ready";
-    tab.error = errorText(error);
-    if (acknowledge) tab.recovery = recovery;
-    if (!acknowledge && tab.entries.at(-1)?.role === "user") tab.entries.pop();
-  });
-  queueRender();
+    tab.error = errorText(err);
+    tab.recovery = tab.sending?.recovery;
+    tab.sending = undefined;
+    queueRender();
+  }
 }
 
 const pick = action(async () => choose(await api.pick()));
@@ -1173,6 +1208,26 @@ async function showVersions() {
 
 void action(async () => {
   const smoke = await api.smoke();
+  if (smoke && (smoke.mode === "audit" || smoke.mode === "audit-reopen")) {
+    const report = async (step: string, quit = false) => { await api.report(JSON.stringify({step}), quit); };
+    try {
+      await showVersions();
+      await initializeWorkspace();
+      if (smoke.mode === "audit-reopen") {
+        if (!active || [...tabs.values()].some(tab => nameOf(tab.session.project) === "recovery project") ||
+            !(get("alert").textContent ?? "").includes("folder is unavailable")) {
+          throw new Error("missing project restore: active=" + active + " tabs=" + tabs.size + " alert=" + get("alert").textContent);
+        }
+        await report("audit-restored", true);
+        return;
+      }
+      const { checkAudit } = await import("./audit");
+      await checkAudit(smoke, choose, open, report, () => saved);
+    } catch (err) {
+      await api.report(JSON.stringify({step:"failed",error:errorText(err)}),true);
+    }
+    return;
+  }
   if (smoke && (smoke.mode === "workspace" || smoke.mode === "workspace-reopen")) {
     try {
       await showVersions();

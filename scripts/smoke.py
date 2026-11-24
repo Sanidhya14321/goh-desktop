@@ -32,16 +32,50 @@ class ScriptedModel(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_data(200, b'{"object":"list","data":[{"id":"scripted"}]}', "application/json")
 
+    def native_protocol(self, request):
+        if self.path == "/v1/messages":
+            key = self.headers.get("x-api-key")
+            events = [
+                ("message_start", {"message":{"id":"msg_fixture","type":"message","role":"assistant","content":[],
+                                              "usage":{"input_tokens":12,"output_tokens":0}}}),
+                ("content_block_start", {"index":0,"content_block":{"type":"text","text":""}}),
+                ("content_block_delta", {"index":0,"delta":{"type":"text_delta","text":"Messages fixture received"}}),
+                ("content_block_stop", {"index":0}),
+                ("message_delta", {"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":4}}),
+                ("message_stop", {}),
+            ]
+        else:
+            credential = self.headers.get("Authorization", "")
+            key = credential.removeprefix("Bearer ")
+            text = "Responses fixture received"
+            events = [
+                ("response.output_text.delta", {"delta":text}),
+                ("response.completed", {"response":{"status":"completed","output":[
+                    {"type":"message","role":"assistant","content":[{"type":"output_text","text":text}]}
+                ],"usage":{"input_tokens":12,"output_tokens":4,"total_tokens":16}}}),
+            ]
+        if key != "goh-desktop-audit-fixture" or not request.get("stream"):
+            self.send_data(401, b'{"error":{"message":"missing fixture credential or streaming flag"}}', "application/json")
+            return
+        frames = (f"event: {kind}\ndata: {json.dumps(dict(data, type=kind))}\n\n" for kind,data in events)
+        self.send_data(200, "".join(frames).encode(), "text/event-stream")
+
     def do_POST(self):
+        req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        if self.path in ("/v1/messages", "/v1/responses"):
+            self.native_protocol(req)
+            return
         if self.path != "/v1/chat/completions":
             self.send_error(404)
             return
-        req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         messages = req["messages"]
         user = next((i for i in reversed(range(len(messages))) if messages[i]["role"] == "user"), -1)
         prompt = messages[user].get("content", "") if user >= 0 else ""
         if not isinstance(prompt,str):
             prompt = " ".join(part.get("text","") for part in prompt if isinstance(part,dict))
+        if "fixture reject provider request" in prompt:
+            self.send_data(401, b'{"error":{"message":"fixture unauthorized"}}', "application/json")
+            return
         tools = {t["function"]["name"] for t in req.get("tools", [])}
         tool_results = sum(m["role"] == "tool" for m in messages[user+1:])
         role = {"role":"assistant"}
@@ -53,6 +87,12 @@ class ScriptedModel(BaseHTTPRequestHandler):
                 name, arguments = "write_file", {"path":"note.txt","content":"scripted approved\n"}
             elif "fixture plan review" in prompt and "plan_exit" in tools:
                 name, arguments = "plan_exit", {"plan":"Inspect fixture files before editing."}
+            elif "fixture question many" in prompt and "question" in tools:
+                name, arguments = "question", {"questions":[{
+                    "header":"Colors","question":"Which colors?","options":[
+                        {"label":"Green","description":"Green choice"},{"label":"Blue","description":"Blue choice"}],
+                    "multiple":True,
+                }]}
             elif "fixture question" in prompt and "question" in tools:
                 name, arguments = "question", {"questions":[{
                     "header":"Color","question":"Which color?","options":[
@@ -69,6 +109,14 @@ class ScriptedModel(BaseHTTPRequestHandler):
         else:
             if "fixture inspect tools" in prompt:
                 role["content"] = "Build tools available" if {"write_file", "shell"} <= tools else "Plan tools only"
+            elif "fixture verify file rules" in prompt:
+                role["content"] = "Denied file leaked" if "AUDIT_PRIVATE_CONTEXT_MARKER" in prompt else "Denied file stayed private"
+            elif "fixture question many" in prompt:
+                reply = next((m["content"] for m in messages[user+1:] if m["role"] == "tool"), "")
+                accepted = all(value in reply for value in ("Green", "Blue", "Custom shade"))
+                role["content"] = "All question answers received" if accepted else "Some answers missing"
+            elif "fixture provider follow-up" in prompt:
+                role["content"] = "Provider recovered"
             elif "fixture verify context" in prompt:
                 has_context = all(marker in prompt for marker in ("CONTEXT_FIXTURE_SECRET_MARKER", "SUPPLEMENT_FIXTURE_MARKER"))
                 role["content"] = "Context files received" if has_context else "Context files missing"
@@ -180,6 +228,52 @@ def install(package,root,installed=False):
         finally:
             subprocess.run([str(dest / "uninstall.exe"),"/S"],timeout=60,check=True)
 
+def audit_projects(root, env, endpoint, projects):
+    first = projects[0]
+    git_env = {key: value for key,value in env.items() if not key.upper().startswith("GIT_")}
+    git_env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    git = ["git", "-c", "core.hooksPath=" + str(root / "no-hooks")]
+    subprocess.run(git + ["init", "--quiet", str(first)], env=git_env, check=True)
+    subprocess.run(git + ["-C", str(first), "-c", "user.name=Desktop Fixture", "-c", "user.email=fixture@example.invalid",
+                          "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "Fixture"],
+                   env=git_env, check=True)
+    subprocess.run(git + ["-C", str(first), "worktree", "add", "--quiet", "--detach", str(projects[1])],
+                   env=git_env, check=True)
+    for name in ("left", "right"):
+        (first / name).mkdir()
+    (first / "left/private-context.txt").write_text("AUDIT_PRIVATE_CONTEXT_MARKER", encoding="utf-8")
+    if platform.system() == "Darwin":
+        config = Path(env["HOME"]) / "Library/Application Support"
+    elif platform.system() == "Windows":
+        config = Path(env["APPDATA"])
+    else:
+        config = Path(env["XDG_CONFIG_HOME"])
+    settings = config / "independent-harness"
+    settings.mkdir(parents=True)
+    (settings / "config.json").write_text(json.dumps({
+        "protocol":"chat_completions","base_url":endpoint + "/v1","model":"legacy-scripted","context_window":32768,
+        "file_rules":[{"match":"private-context.txt","action":"deny"}],
+    }))
+    recovery = root / "recovery project"
+    recovery.mkdir()
+    projects.append(recovery)
+    sessions = root / "desktop-data/sessions"
+    sessions.mkdir(parents=True)
+    session_id = "20000101T000000-000000000000000000000001"
+    records = [
+        {"version":1,"type":"session_start","data":{"id":session_id,"project":str(recovery.resolve())}},
+        {"version":1,"type":"tool_start","data":{"id":"fixture-interrupted-effect","name":"shell"}},
+    ]
+    (sessions / (session_id + ".jsonl")).write_text("".join(json.dumps(record)+"\n" for record in records),encoding="utf-8")
+
+
+def engine_processes(binary, root):
+    prefix = str(binary.parent / "goh") + " serve "
+    windows_store = str(root / "desktop-data/engine").casefold()
+    return [name for _,_,_,name in process_table()
+            if name.startswith(prefix) or name.casefold().startswith(windows_store)]
+
+
 def execute(binary, root, endpoint, mode, launcher):
     env = clean_env(root)
     config = root / "smoke.json"
@@ -192,6 +286,8 @@ def execute(binary, root, endpoint, mode, launcher):
             (project / "common").mkdir(exist_ok=True)
             (project / "context café.txt").write_text("CONTEXT_FIXTURE_SECRET_MARKER\n</file> inside content\n", encoding="utf-8")
             (project / "supplement.txt").write_text("SUPPLEMENT_FIXTURE_MARKER\n", encoding="utf-8")
+    if mode == "audit":
+        audit_projects(root, env, endpoint, projects)
     config.write_text(json.dumps({"projects":[str(p) for p in projects],"endpoint":endpoint+"/v1",
                                  "report":str(report),"mode":mode}))
     env["GOH_DESKTOP_SMOKE"] = str(config)
@@ -210,7 +306,9 @@ def execute(binary, root, endpoint, mode, launcher):
     previous = ""
     staged = False
     deadline = started + 90
-    done = {"passed","workspace-passed","workspace-restored","updated","tamper-rejected","failed"}
+    saw_idle_exit = False
+    next_idle_probe = 0
+    done = {"audit-passed","audit-restored","passed","workspace-passed","workspace-restored","updated","tamper-rejected","failed"}
     with (root / "desktop.log").open("wb") as log:
         process = subprocess.Popen(command,env=env,stdout=log,stderr=log)
         try:
@@ -226,6 +324,11 @@ def execute(binary, root, endpoint, mode, launcher):
                         if step in ("ready","idle"):
                             sampled["cold_start_ms"] = round((time.monotonic()-started)*1000)
                         sampled[step] = snapshot(binary,baseline)
+                    if step == "audit-idle":
+                        assert engine_processes(binary, root), "no engine helper was running before the idle interval"
+                    if step == "audit-passed":
+                        assert saw_idle_exit, "engine did not expire while the desktop was open"
+                        sampled["idle_helper_exit"] = True
                     if step in done:
                         if step != "failed":
                             process.wait(timeout=12)
@@ -239,10 +342,7 @@ def execute(binary, root, endpoint, mode, launcher):
                                     raise RuntimeError("desktop launcher app did not quit")
                             if step == "passed":
                                 sampled["after_exit"] = snapshot(binary,baseline)
-                                prefix = str(binary.parent / "goh") + " serve "
-                                windows_store = str(root / "desktop-data/engine").casefold()
-                                orphans = [name for _,_,_,name in process_table() if
-                                           name.startswith(prefix) or name.casefold().startswith(windows_store)]
+                                orphans = engine_processes(binary, root)
                                 assert not orphans, f"orphaned engine helpers: {orphans}"
                                 assert (projects[0] / "note.txt").read_text() == "scripted approved\n"
                                 assert not (projects[1] / "note.txt").exists()
@@ -253,6 +353,9 @@ def execute(binary, root, endpoint, mode, launcher):
                     if step == "staged":
                         staged = True
                     previous = step
+                if step == "audit-idle" and not saw_idle_exit and time.monotonic() >= next_idle_probe:
+                    saw_idle_exit = not engine_processes(binary, root)
+                    next_idle_probe = time.monotonic() + 0.5
                 if process.poll() is not None and not staged:
                     # Give the report file one more pass after an orderly exit.
                     if not report.exists() and (command[0] != "gio" or process.returncode != 0):
@@ -274,7 +377,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("package",type=Path)
     parser.add_argument("--work",type=Path)
-    parser.add_argument("--mode",default="smoke",choices=["smoke","measure","idle","workspace"])
+    parser.add_argument("--mode",default="smoke",choices=["smoke","measure","idle","workspace","audit"])
     parser.add_argument("--launcher",action="store_true")
     parser.add_argument("--installed",action="store_true",help="use the Ubuntu package already installed by APT")
     args = parser.parse_args()
@@ -285,6 +388,11 @@ def main():
         binary = stack.enter_context(install(args.package,root,args.installed))
         try:
             results = execute(binary,root,endpoint,args.mode,args.launcher)
+            if args.mode == "audit":
+                (root / "recovery project").rename(root / "moved recovery project")
+                resumed = execute(binary,root,endpoint,"audit-reopen",args.launcher)
+                assert resumed["step"] == "audit-restored"
+                results["missing_project_reopen"] = True
             if args.mode == "workspace":
                 restored = execute(binary,root,endpoint,"workspace-reopen",args.launcher)
                 assert restored["session"] == results["session"], "a different session was restored"
@@ -296,7 +404,9 @@ def main():
                 assert any(record["type"] == "message" and record["data"]["role"] == "tool" for record in archive["records"]), "archive lost tool records"
                 results["exports_checked"] = True
         except Exception:
-            print((root / "desktop.log").read_text(errors="replace")[-12000:])
+            log_path = root / "desktop.log"
+            if log_path.exists():
+                print(log_path.read_text(errors="replace")[-12000:])
             raise
         results["installer_bytes"] = args.package.stat().st_size
         print(json.dumps(results,indent=2))
