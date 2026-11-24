@@ -65,7 +65,7 @@ def dependency_licenses():
         licenses = [root / "LICENSE",*sorted((root / "licenses").glob("LICENSE*"))]
         for license in licenses:
             notices.append(dependency + " (" + license.name + ")\n" + license.read_text(encoding="utf-8"))
-    for dependency in ("@xterm/xterm","@xterm/addon-fit","@fontsource/barlow","@fontsource/barlow-condensed"):
+    for dependency in ("@xterm/xterm","@xterm/addon-fit","@xterm/addon-search","@fontsource/barlow","@fontsource/barlow-condensed"):
         license = ROOT / "frontend/node_modules" / dependency / "LICENSE"
         notices.append(dependency + "\n" + license.read_text(encoding="utf-8"))
     return "\n\n".join(notices)

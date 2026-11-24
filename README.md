@@ -6,17 +6,18 @@ A standalone desktop app for GoHarness with a Wails v3 host, one native webview,
 
 1. Launch **GoHarness Desktop** from the OS launcher. On macOS, drag the app from the DMG into Applications before opening it.
 2. Use **Projects** to open a repository or folder. Pin frequently used folders, filter the list, and switch between projects without closing sessions and terminals from other folders.
-3. Click **New session** in the selected project to talk to GoHarness. The provider indicator opens setup for browser OAuth, an API key, or a local provider. Existing GoHarness settings are reused automatically. A terminal can be opened before a provider is set up.
-4. Use the terminal button in the top bar to show the dock. The dock’s **+** opens a real shell in the selected project. Terminal tabs keep running when the dock is hidden or when another project is selected. Use **Split terminal view** to see two panes, and drag the top divider to resize the dock.
+3. Click **New session** to talk to GoHarness. If setup is needed, the app opens the provider dialog and returns to the requested project after setup. An empty session offers **Explain this project**, which fills the composer with an editable prompt. A terminal can be opened before a provider is set up. Use the **Needs input** control to jump to an approval or question in any open project.
+4. Use the terminal button in the top bar to show the dock. The dock’s **+** opens a real shell in the selected project. Terminal tabs keep running when the dock is hidden or when another project is selected. Use **Split terminal view** to see two panes, and drag the top divider to resize the dock. Rename terminals from the dock and switch to them by name through the palette. Search scrollback in the active pane with the dock’s Find button.
 5. Use **Workspace settings** to choose a dark theme, density, terminal font size, default shell, and panel visibility. Pinning, session names, and the selected project persist. With session restoration enabled, the app reopens those tabs on launch.
 
 | Action | macOS | Ubuntu and Windows |
 | --- | --- | --- |
-| Command palette | Cmd+K | Ctrl+K |
+| Command palette | Cmd+K or Cmd+Shift+P | Ctrl+K or Ctrl+Shift+P |
 | Open project | Cmd+O | Ctrl+O |
 | New terminal | Cmd+Shift+T | Ctrl+Shift+T |
 | Workspace settings | Cmd+, | Ctrl+, |
 | Send message | Cmd+Enter | Ctrl+Enter |
+| Find in the focused terminal | Cmd+F | Ctrl+Shift+F |
 | Copy or paste in a terminal | Cmd+C / Cmd+V | Ctrl+Shift+C / Ctrl+Shift+V |
 
 When focused in an Ubuntu or Windows terminal, use Ctrl+Shift+K for the palette. The palette also offers terminal copy, paste, and scrollback clearing. Native menus expose the main workspace actions.
@@ -74,4 +75,4 @@ Desktop settings and journals live under the OS user config directory in `GoHarn
 
 The Go host launches the engine by an absolute path and verifies its reported version. Each helper binds `127.0.0.1:0` and receives a fresh bearer token. The host authenticates `GET /v1/info`, checks the fixed project and session directory, and handles the NDJSON stream and input routes. The webview gets batched display events and the bounded recent portion of durable journals. It has no helper address or token. Exit cancels active streams and stops helpers.
 
-The [workspace redesign verification](docs/WORKSPACE.md) records the latest checks. The repository also includes the [release and signing runbook](docs/RELEASE.md), the [upstream dispatch patch](docs/upstream-desktop-hook.patch), and the [verification and performance report](docs/VERIFICATION.md).
+The [existing-app research and UX plan](reports/Desktop%20workflow%20usability.md) explains the usability changes, and the [usability verification](docs/USABILITY-VERIFICATION.md) records the installed tests. The [workspace redesign verification](docs/WORKSPACE.md) records the latest checks. The repository also includes the [release and signing runbook](docs/RELEASE.md), the [upstream dispatch patch](docs/upstream-desktop-hook.patch), and the [verification and performance report](docs/VERIFICATION.md).

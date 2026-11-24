@@ -178,6 +178,8 @@ def execute(binary, root, endpoint, mode, launcher):
     projects = [root / "first project",root / "second project"]
     for project in projects:
         project.mkdir(exist_ok=True)
+        if mode == "workspace":
+            (project / "common").mkdir(exist_ok=True)
     config.write_text(json.dumps({"projects":[str(p) for p in projects],"endpoint":endpoint+"/v1",
                                  "report":str(report),"mode":mode}))
     env["GOH_DESKTOP_SMOKE"] = str(config)

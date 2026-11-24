@@ -1,12 +1,13 @@
 import { Clipboard } from "@wailsio/runtime";
 import { Terminal, type ITheme } from "@xterm/xterm";
+import { SearchAddon } from "@xterm/addon-search";
 import { FitAddon } from "@xterm/addon-fit";
 import { api, onTerminal, type TerminalPacket } from "./api";
 import { icon } from "./icons";
 
 type Pane = {
   id: string; title: string; project: string; surface: HTMLElement; content: HTMLElement;
-  terminal: Terminal; fit: FitAddon; waiting: Map<number, TerminalPacket>;
+  terminal: Terminal; fit: FitAddon; search?: SearchAddon; waiting: Map<number, TerminalPacket>;
   seq: number; pendingInput: string; writing: boolean; connected: boolean; ended: boolean; size: string;
 };
 
@@ -16,6 +17,8 @@ const themes: Record<string, ITheme> = {
   contrast: { background: "#080808", foreground: "#ffffff", cursor: "#ffca9e", selectionBackground: "#68574a", brightBlack: "#b4b4b4", green: "#a8e3af" },
 };
 const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) || path;
+const get = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
+
 function control(label: string, glyph: string, click: () => void) {
   const button = document.createElement("button");
   button.type = "button";
@@ -32,6 +35,11 @@ export class TerminalDock {
   private primary = "";
   private secondary = "";
   private focused = "";
+  private searching = "";
+  private renaming = "";
+  private searchInput = get<HTMLInputElement>("terminal-query");
+  private nameInput = get<HTMLInputElement>("terminal-rename-value");
+  private renameDialog = get<HTMLDialogElement>("terminal-rename-dialog");
   private open = false;
   private fontSize = 13;
   private theme = themes.ember;
@@ -47,6 +55,34 @@ export class TerminalDock {
   ) {
     onTerminal(packet => this.receive(packet));
     new ResizeObserver(() => this.scheduleFit()).observe(surfaces);
+    get("terminal-find").onclick = () => this.find();
+    get("terminal-rename").onclick = () => this.rename();
+    get("terminal-close-find").onclick = () => this.closeFind();
+    get("terminal-previous").onclick = () => this.search(false);
+    get("terminal-next").onclick = () => this.search(true);
+    this.searchInput.oninput = () => this.search(true, true);
+    this.searchInput.onkeydown = event => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        this.closeFind();
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        this.search(!event.shiftKey);
+      }
+    };
+    get("terminal-rename-cancel").onclick = () => this.renameDialog.close();
+    this.renameDialog.addEventListener("close", () => {
+      this.panes.get(this.renaming)?.terminal.focus();
+      this.renaming = "";
+    });
+    get<HTMLFormElement>("terminal-rename-form").onsubmit = event => {
+      event.preventDefault();
+      const pane = this.panes.get(this.renaming);
+      if (!pane || !this.nameInput.value.trim()) return;
+      pane.title = this.nameInput.value.trim();
+      this.renameDialog.close();
+      this.draw();
+    };
   }
 
   configure(theme: string, fontSize: number) {
@@ -61,6 +97,7 @@ export class TerminalDock {
 
   toggle() { this.show(!this.open); }
   show(show: boolean) {
+    if (!show) this.closeFind(false);
     this.open = show;
     this.draw();
   }
@@ -88,12 +125,13 @@ export class TerminalDock {
     terminal.loadAddon(fit);
     const pane: Pane = { id, title: "Terminal " + ++this.label, project, surface, content, terminal, fit,
       seq: 0, waiting: new Map(), pendingInput: "", writing: false, connected: false, ended: false, size: "" };
+    const initialTitle = pane.title;
     this.panes.set(id, pane);
     if (split && this.primary) this.secondary = id;
     else this.primary = id;
     this.draw();
     terminal.open(content);
-    surface.addEventListener("focusin", () => { this.focused = id; });
+    surface.addEventListener("focusin", () => { this.updateFocus(id); });
     fit.fit();
     terminal.onData(text => this.queueInput(pane, text));
     terminal.attachCustomKeyEventHandler(event => {
@@ -115,7 +153,7 @@ export class TerminalDock {
     });
     try {
       const actual = await api.openTerminal(id, project, shell, terminal.cols, terminal.rows);
-      pane.title = String(this.labelFor(pane)) + " " + actual.name;
+      if (pane.title === initialTitle) pane.title = String(this.labelFor(pane)) + " " + actual.name;
       pane.connected = !pane.ended;
       this.draw();
       if (pane.connected) terminal.focus();
@@ -133,12 +171,90 @@ export class TerminalDock {
     if (!this.primary) { await this.add(project,shell); return; }
     const other = [...this.panes.keys()].reverse().find(key => key !== this.primary);
     if (other) { this.secondary = other; this.draw(); }
-    else await this.add(project,shell,true);
+    else await this.add(this.focusedPane()?.project ?? project,shell,true);
   }
 
   private focusedPane() {
     const pane = this.panes.get(this.focused);
     return pane && !pane.surface.hidden ? pane : this.panes.get(this.primary);
+  }
+
+  entries() {
+    return [...this.panes.values()].map(({id,title,project,ended}) => ({id,title,project,ended}));
+  }
+
+  select(id: string) {
+    const pane = this.panes.get(id);
+    if (!pane) return;
+    if (this.searching && this.searching !== id) this.closeFind(false);
+    const visible = this.primary === id || this.secondary === id;
+    if (!visible) this.primary = id;
+    if (!this.open || !visible) this.show(true);
+    pane.terminal.focus();
+    this.updateFocus(id);
+  }
+
+  rename(pane = this.focusedPane()) {
+    if (!pane || this.renameDialog.open) return;
+    this.renaming = pane.id;
+    this.nameInput.value = pane.title;
+    this.renameDialog.showModal();
+    this.nameInput.select();
+  }
+
+  find() {
+    const pane = this.focusedPane();
+    if (!pane) return;
+    this.show(true);
+    if (this.searching !== pane.id) {
+      this.closeFind(false);
+      this.searching = pane.id;
+      this.searchInput.value = "";
+    }
+    if (!pane.search) {
+      pane.search = new SearchAddon();
+      pane.terminal.loadAddon(pane.search);
+    }
+    const label = "Find in " + pane.title;
+    this.searchInput.placeholder = label;
+    this.searchInput.setAttribute("aria-label",label);
+    get("terminal-search").hidden = false;
+    this.searchInput.focus();
+    this.searchInput.select();
+    this.scheduleFit();
+  }
+
+  private search(forward: boolean, incremental = false) {
+    const pane = this.panes.get(this.searching);
+    if (!pane?.search) return;
+    const query = this.searchInput.value;
+    if (!query) {
+      pane.search.clearDecorations();
+      get("terminal-match").textContent = "";
+      return;
+    }
+    const match = forward ? pane.search.findNext(query,{incremental}) : pane.search.findPrevious(query);
+    get("terminal-match").textContent = match ? "Match found" : "No match";
+  }
+
+  private closeFind(focus = true) {
+    const pane = this.panes.get(this.searching);
+    this.searching = "";
+    pane?.search?.clearDecorations();
+    get("terminal-search").hidden = true;
+    get("terminal-match").textContent = "";
+    if (focus && pane && !pane.surface.hidden) pane.terminal.focus();
+    this.scheduleFit();
+  }
+
+  private updateFocus(id: string) {
+    this.focused = id;
+    if (this.searching && this.searching !== id) this.closeFind(false);
+    for (const [key,pane] of this.panes) {
+      pane.surface.classList.toggle("focused",key === id);
+      const tab = this.tabs.querySelector<HTMLElement>('[data-terminal-tab="' + key + '"]');
+      tab?.classList.toggle("focused",key === id);
+    }
   }
 
   async copy() {
@@ -217,6 +333,7 @@ export class TerminalDock {
   private async remove(pane: Pane) {
     try {
       await api.closeTerminal(pane.id);
+      if (this.searching === pane.id) this.closeFind(false);
       this.panes.delete(pane.id);
       pane.connected = false;
       pane.terminal.dispose();
@@ -233,23 +350,24 @@ export class TerminalDock {
   private draw() {
     this.dock.hidden = !this.open;
     this.surfaces.classList.toggle("split", !!this.secondary);
+    if (this.focused !== this.primary && this.focused !== this.secondary) this.focused = this.primary;
     const buttons: HTMLElement[] = [];
     for (const pane of this.panes.values()) {
       const selected = pane.id === this.primary || pane.id === this.secondary;
       pane.surface.hidden = !selected;
+      pane.surface.classList.toggle("focused",pane.id === this.focused);
+      pane.surface.style.order = pane.id === this.primary ? "0" : "1";
       const wrapper = document.createElement("div");
-      wrapper.className = "terminal-tab" + (selected ? " current" : "");
+      wrapper.className = "terminal-tab" + (selected ? " current" : "") + (pane.id === this.focused ? " focused" : "");
+      wrapper.dataset.terminalTab = pane.id;
       const select = document.createElement("button");
       select.textContent = pane.title + " · " + baseName(pane.project);
       select.title = pane.project + (pane.ended ? " · Exited" : "");
+      select.setAttribute("aria-label",pane.title + " · " + pane.project + (pane.ended ? " · Exited" : ""));
       select.setAttribute("aria-pressed",String(selected));
       if (pane.ended) select.dataset.exited = "true";
-      select.onclick = () => {
-        if (this.secondary === pane.id) { pane.terminal.focus(); return; }
-        this.primary = pane.id;
-        this.draw();
-        pane.terminal.focus();
-      };
+      select.onclick = () => this.select(pane.id);
+      select.ondblclick = () => this.rename(pane);
       wrapper.append(select,control("Close " + pane.title,"close",() => { void this.remove(pane); }));
       buttons.push(wrapper);
     }

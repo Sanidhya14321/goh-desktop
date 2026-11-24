@@ -11,13 +11,15 @@
 <body>
   <header class="top">
     <div class="brand"><img src="/brand.svg" alt="" width="30" height="30"><strong>GoHarness</strong><span>Desktop</span></div>
-    <button id="palette" class="palette-button" aria-haspopup="dialog"><span data-icon="search"></span> <span>Find a command or project</span><kbd id="palette-key"></kbd></button>
+    <button id="palette" class="palette-button" aria-haspopup="dialog"><span data-icon="search"></span> <span>Find a command, project, or terminal</span><kbd id="palette-key"></kbd></button>
     <div class="top-actions">
+      <button id="attention" class="attention-button" aria-haspopup="dialog" hidden><span data-icon="alert"></span><span id="attention-count"></span></button>
       <button id="sidebar-toggle" class="icon-button" title="Toggle projects" aria-label="Toggle projects"><span data-icon="sidebar"></span></button>
       <button id="dock-toggle" class="icon-button" title="Toggle terminal" aria-label="Toggle terminal"><span data-icon="terminal"></span></button>
       <button id="settings" class="icon-button" title="Workspace settings" aria-label="Workspace settings"><span data-icon="settings"></span></button>
     </div>
   </header>
+  <span id="attention-live" class="sr-only" role="status"></span>
   <div id="workspace" class="workspace">
     <aside class="projects" aria-label="Projects">
       <div class="section-title"><span>Projects</span><button id="pick" class="icon-button" title="Open project folder" aria-label="Open project folder"><span data-icon="plus"></span></button></div>
@@ -62,11 +64,12 @@
         <div id="session-body" class="session-body">
           <div class="conversation">
             <div id="messages" class="messages" role="log" aria-label="Conversation"></div>
-            <section id="challenge" class="challenge" aria-label="Engine input" hidden></section>
+            <section id="challenge" class="challenge" aria-label="Engine input" tabindex="-1" hidden></section>
             <form id="composer" class="composer">
               <div class="compose-box">
                 <label for="prompt" class="sr-only">Message</label>
                 <textarea id="prompt" rows="2" placeholder="Message GoHarness"></textarea>
+                <button id="starter-prompt" class="starter-prompt quiet" type="button" hidden>Explain this project</button>
                 <div class="compose-actions">
                   <span id="compose-key" class="muted"></span>
                   <button id="cancel" type="button" class="quiet" hidden>Cancel run</button>
@@ -88,8 +91,18 @@
           <div id="terminal-tabs" class="terminal-tabs" aria-label="Terminal tabs"></div>
           <button id="terminal-add" class="icon-button" title="New terminal" aria-label="New terminal"><span data-icon="plus"></span></button>
           <button id="terminal-split" class="icon-button" title="Split terminal view" aria-label="Split terminal view"><span data-icon="split"></span></button>
+          <button id="terminal-find" class="icon-button" title="Find in active terminal" aria-label="Find in active terminal" disabled><span data-icon="search"></span></button>
+          <button id="terminal-rename" class="icon-button" title="Rename active terminal" aria-label="Rename active terminal" disabled><span data-icon="edit"></span></button>
           <button id="terminal-hide" class="icon-button" title="Hide terminal panel" aria-label="Hide terminal panel"><span data-icon="minus"></span></button>
         </header>
+        <div id="terminal-search" class="terminal-search" hidden>
+          <label class="sr-only" for="terminal-query">Find in terminal</label>
+          <input id="terminal-query" type="search" placeholder="Find in active terminal" autocomplete="off" maxlength="200">
+          <span id="terminal-match" role="status"></span>
+          <button id="terminal-previous" class="quiet" type="button" title="Previous match" aria-label="Previous match">↑</button>
+          <button id="terminal-next" class="quiet" type="button" title="Next match" aria-label="Next match">↓</button>
+          <button id="terminal-close-find" class="icon-button" type="button" title="Close terminal search" aria-label="Close terminal search"><span data-icon="close"></span></button>
+        </div>
         <div id="terminal-panes" class="terminal-panes"></div>
       </section>
     </main>
@@ -101,8 +114,12 @@
     <span id="versions"></span><button id="updates" class="status-button">Updates</button>
   </footer>
 
+  <dialog id="attention-dialog" aria-labelledby="attention-title">
+    <div class="dialog-heading"><h2 id="attention-title">Needs input</h2><button id="close-attention" class="icon-button" aria-label="Close pending inputs"><span data-icon="close"></span></button></div>
+    <div id="attention-list"></div>
+  </dialog>
   <dialog id="palette-dialog" class="palette-dialog" aria-label="Command palette">
-    <label class="palette-search"><span data-icon="search"></span><input id="palette-query" placeholder="Type a command or project…" aria-label="Search commands and projects"><kbd>Esc</kbd></label>
+    <label class="palette-search"><span data-icon="search"></span><input id="palette-query" placeholder="Type a command, project, session, or terminal…" role="combobox" aria-controls="palette-results" aria-expanded="false" aria-autocomplete="list" aria-label="Search workspace"><kbd>Esc</kbd></label>
     <div id="palette-results" role="listbox" aria-label="Commands and projects"></div>
   </dialog>
   <dialog id="settings-dialog" aria-labelledby="settings-title">
@@ -126,17 +143,27 @@
     </form>
   </dialog>
 
+  <dialog id="terminal-rename-dialog" aria-labelledby="terminal-rename-title">
+    <form id="terminal-rename-form">
+      <div class="dialog-heading"><h2 id="terminal-rename-title">Rename terminal</h2></div>
+      <label class="rename-label">Terminal name<input id="terminal-rename-value" maxlength="80" required></label>
+      <div class="button-row settings-actions"><button type="submit" class="primary">Save</button><button id="terminal-rename-cancel" type="button" class="quiet">Cancel</button></div>
+    </form>
+  </dialog>
+
   <dialog id="provider-dialog">
     <div class="dialog-heading"><h2>Provider settings</h2><button id="close-provider" class="quiet">Close</button></div>
-    <p id="provider-status"></p>
+    <p id="provider-intent" class="provider-intent" hidden></p>
+    <p id="provider-status" role="status"></p>
     <div class="provider-oauth">
       <button id="login" class="primary">Continue with ChatGPT</button>
       <button id="switch" class="quiet">Switch account</button>
       <button id="cancel-login" class="quiet" hidden>Cancel sign-in</button>
       <label id="auth-label" hidden>Browser authorization URL<input id="auth-url" readonly></label>
     </div>
+    <details id="provider-custom" class="provider-custom">
+      <summary>Use an API key or local server</summary>
     <form id="provider-form" class="provider-form">
-      <h3>API or local provider</h3>
       <label>Protocol
         <select id="protocol">
           <option value="chat_completions">OpenAI-compatible Chat Completions</option>
@@ -146,10 +173,14 @@
       </label>
       <label>Base URL<input id="endpoint" required type="url" placeholder="https://api.example.com/v1"></label>
       <label>Model ID<input id="model" required placeholder="Model identifier from your provider"></label>
-      <label>Context window (tokens)<input id="window" type="number" min="1" max="10000000" value="32768"></label>
       <label>API key (optional for local providers)<input id="api-key" type="password" autocomplete="off"></label>
-      <div class="button-row"><button type="submit" class="primary">Save provider</button><button id="engine-settings" type="button" class="quiet">Use GoHarness settings</button></div>
+      <details class="provider-advanced"><summary>Advanced settings</summary>
+        <label>Context window (tokens)<input id="window" type="number" min="1" max="10000000" value="32768"></label>
+      </details>
+      <div class="button-row"><button id="save-provider" type="submit" class="primary">Save provider</button></div>
     </form>
+    </details>
+    <button id="engine-settings" type="button" class="quiet use-engine-settings">Use existing GoHarness settings</button>
   </dialog>
   <dialog id="update-dialog">
     <div class="dialog-heading"><h2>Updates</h2><button id="close-update" class="quiet">Close</button></div>

@@ -1,4 +1,5 @@
 const paths: Record<string, string> = {
+  alert: "M12 3 2 21h20L12 3ZM12 9v5m0 3h.01",
   search: "m21 21-4.3-4.3M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z",
   sidebar: "M4 5h16v14H4zM9 5v14",
   terminal: "m5 7 5 5-5 5m8 0h6",

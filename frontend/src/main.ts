@@ -42,6 +42,8 @@ const defaults: Workspace = {
 let prefs: Workspace = {...defaults};
 let ready = false;
 let hasProvider = false;
+let creatingSession = false;
+let pendingSessionProject = "";
 let saved = Promise.resolve();
 let filter = "";
 let terminalDock: TerminalDock | undefined;
@@ -92,6 +94,22 @@ function projectPaths() {
   return [...new Set([...prefs.pins, ...[...tabs.values()].map(tab => tab.session.project), ...projects])];
 }
 
+function projectParents(paths: string[]) {
+  const segments = new Map(paths.map(path => [path, path.split(/[\\/]/).filter(Boolean)]));
+  const parents = new Map<string, string>();
+  for (const [path, parts] of segments) {
+    const parent = parts.slice(0, -1);
+    const shared = [...segments].filter(([other, otherParts]) =>
+      other !== path && otherParts.at(-1)?.toLocaleLowerCase() === parts.at(-1)?.toLocaleLowerCase());
+    if (!shared.length) continue;
+    let depth = 1;
+    const suffix = (segments: string[]) => segments.slice(-depth).join(" / ");
+    while (depth < parent.length && shared.some(([, other]) => suffix(other.slice(0,-1)) === suffix(parent))) depth++;
+    parents.set(path, suffix(parent) || path);
+  }
+  return parents;
+}
+
 function sessionLabel(session: Session) {
   if (Object.hasOwn(prefs.names, session.id)) return prefs.names[session.id];
   const parsed = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})-/.exec(session.id);
@@ -120,21 +138,30 @@ function togglePin(path: string) {
 
 function drawNavigation() {
   const key = JSON.stringify([projects, project, sessions, active, filter, prefs.pins, prefs.names,
-    [...tabs.values()].map(tab => [tab.session.id, tab.running, !!tab.input])]);
+    [...tabs.values()].map(tab => [tab.session.id, tab.running, tab.input?.id, !!tab.recovery])]);
   if (key === navigationKey) return;
   navigationKey = key;
-  const paths = projectPaths().filter(path => path.toLocaleLowerCase().includes(filter));
+  const allPaths = projectPaths();
+  const parents = projectParents(allPaths);
+  const paths = allPaths.filter(path => path.toLocaleLowerCase().includes(filter));
   const projectItems = paths.map(path => {
     const row = element("div","","project-row" + (path === project ? " current" : ""));
-    const title = element("span", nameOf(path), "item-title");
+    const label = element("span","","project-label");
+    label.append(element("span",nameOf(path),"item-title"));
+    const parent = parents.get(path);
+    if (parent) label.append(element("small",parent,"item-title project-parent"));
     const b = button("", () => { void openProject(path); }, "project");
-    b.append(icon("folder"), title);
+    b.append(icon("folder"),label);
     b.title = path;
     b.setAttribute("aria-current", String(path === project));
     const pinned = prefs.pins.includes(path);
     const pin = iconButton(pinned ? "Unpin " + nameOf(path) : "Pin " + nameOf(path), "pin", () => togglePin(path), "pin-project");
     pin.setAttribute("aria-pressed",String(pinned));
-    row.append(b,pin);
+    row.append(b);
+    if (path === project) {
+      row.append(iconButton("Open terminal in " + nameOf(path),"terminal",openProjectTerminal(path),"project-terminal"));
+    }
+    row.append(pin);
     return row;
   });
   get("projects").replaceChildren(...(projectItems.length ? projectItems : [element("p",filter ? "No matching projects" : "No recent projects","muted sidebar-empty")]));
@@ -166,6 +193,7 @@ function drawNavigation() {
   }));
   const activeRuns = [...tabs.values()].filter(tab => tab.running).length;
   get("run-count").textContent = activeRuns ? activeRuns + (activeRuns === 1 ? " active run" : " active runs") : "";
+  drawAttention();
 }
 
 function closeTab(tab: Tab) {
@@ -236,14 +264,18 @@ async function open(session: Session) {
 }
 
 async function restoreWorkspace() {
-  const prior = prefs.project;
-  if (!prior) return;
-  try {
-    project = await api.select(prior);
-    await refreshSessions(project);
-  } catch (error) { announce(errorText(error)); return; }
-  if (!prefs.restore) { drawNavigation(); drawSession(); return; }
-  // Restore only session IDs still present in their project's journal list.
+  let prior = prefs.project;
+  if (prior) {
+    try {
+      project = prior = await api.select(prior);
+      await refreshSessions(project);
+    } catch {
+      project = prior = "";
+      announce("The previously selected folder is unavailable. Choose another project.");
+    }
+  }
+  if (!prefs.restore) return;
+  // A missing folder must not prevent tabs from other projects from reopening.
   const groups = [...new Set(prefs.tabs.map(tab => tab.project))];
   const valid = new Set((await Promise.all(groups.map(async path => {
     try { return (await api.sessions(path)).map(s => s.id); } catch { return []; }
@@ -252,7 +284,7 @@ async function restoreWorkspace() {
     if (valid.has(tab.id)) await open(tab);
   }
   if (tabs.has(prefs.active)) setActive(prefs.active);
-  else {
+  else if (prior) {
     project = prior;
     setActive([...tabs.values()].reverse().find(tab => tab.session.project === prior)?.session.id ?? "");
     await refreshSessions(prior);
@@ -342,6 +374,7 @@ function drawSession() {
     get("welcome-terminal").hidden = !project;
     return;
   }
+  get("starter-prompt").hidden = tab.loading || tab.running || !!tab.input || !!tab.recovery || tab.entries.length > 0 || !!tab.draft;
   const switching = previousTab !== active;
   previousTab = active;
   const nearBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 90;
@@ -418,7 +451,9 @@ function drawInput(tab: Tab) {
   if (input.kind === "permission") {
     const tool = input.data.tool ?? "Tool";
     const edit = /(?:^|:)(?:write_file|edit_file|create_file|apply_patch)$/.test(tool);
-    pane.append(element("h3", (edit ? "Proposed edit · " : "Approval required · ") + tool), element("pre", input.data.preview ?? ""));
+    pane.append(element("h3", edit ? "Review proposed edit" : "Review requested action"),
+      element("p", tool + " · " + nameOf(tab.session.project), "challenge-context"),
+      element("pre", input.data.preview || "No additional details were provided by the engine."));
     const actions = element("div", "", "button-row");
     actions.append(button("Allow once", () => answer({ allow: true }), "primary"), button("Deny", () => answer({ allow: false })));
     pane.append(actions);
@@ -481,15 +516,30 @@ async function send(tab: Tab, text: string, acknowledge = false) {
 const pick = action(async () => choose(await api.pick()));
 get("pick").onclick = pick;
 get("empty-pick").onclick = pick;
-const newSession = action(async () => {
-  if (!project) { await pick(); return; }
-  if (!hasProvider && !(await refreshProvider()).model) { get("provider").click(); return; }
+async function createSession(path: string) {
+  if (creatingSession) return;
   if (tabs.size >= 30) throw new Error("Close a session tab before creating another.");
+  creatingSession = true;
+  try {
+    const session = await api.create(path);
+    await open(session);
+    await refreshSessions(path);
+    prompt.focus();
+  } finally {
+    creatingSession = false;
+  }
+}
+
+const newSession = action(async () => {
+  if (!project) await pick();
   const chosen = project;
-  const session = await api.create(chosen);
-  await refreshSessions(chosen);
-  await open(session);
-  prompt.focus();
+  if (!chosen || creatingSession) return;
+  if (!hasProvider && !(await refreshProvider()).model) {
+    pendingSessionProject = chosen;
+    await showProvider();
+    return;
+  }
+  await createSession(chosen);
 });
 for (const id of ["create","tab-new","welcome-session"]) get(id).onclick = newSession;
 get<HTMLInputElement>("project-filter").oninput = event => {
@@ -501,7 +551,20 @@ get<HTMLFormElement>("composer").onsubmit = event => {
   const tab = tabs.get(active);
   if (tab) void send(tab, prompt.value);
 };
-prompt.oninput = () => { const tab = tabs.get(active); if (tab) tab.draft = prompt.value; };
+prompt.oninput = () => {
+  const tab = tabs.get(active);
+  if (tab) tab.draft = prompt.value;
+  if (tab && !tab.entries.length) {
+    get("starter-prompt").hidden = tab.loading || tab.running || !!tab.input || !!tab.recovery || !!tab.draft;
+  }
+};
+get("starter-prompt").onclick = () => {
+  const tab = tabs.get(active);
+  if (!tab || tab.draft) return;
+  prompt.value = tab.draft = "Inspect this project and summarize how to build and test it. Do not modify any files.";
+  drawSession();
+  prompt.focus();
+};
 prompt.onkeydown = event => {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
     event.preventDefault();
@@ -521,24 +584,49 @@ const refreshProvider = async () => {
     "Connect ChatGPT or enter an API endpoint and model. Local servers may use a blank key.");
   return p;
 };
-get("provider").onclick = action(async () => { providerDialog.showModal(); await refreshProvider(); }, providerMessage);
-get("close-provider").onclick = () => providerDialog.close();
+const showProvider = async () => {
+  const banner = get("provider-intent");
+  banner.hidden = !pendingSessionProject;
+  banner.textContent = pendingSessionProject ? "Connect a provider to start a session in " + nameOf(pendingSessionProject) + "." : "";
+  if (!providerDialog.open) providerDialog.showModal();
+  await refreshProvider();
+};
+get("provider").onclick = action(showProvider, providerMessage);
+get("close-provider").onclick = () => { pendingSessionProject = ""; providerDialog.close(); };
+providerDialog.addEventListener("cancel", () => { pendingSessionProject = ""; });
+
+async function resumeAfterProvider() {
+  const state = await refreshProvider();
+  const chosen = pendingSessionProject;
+  if (!chosen || !state.model || !providerDialog.open) return false;
+  await createSession(chosen);
+  pendingSessionProject = "";
+  providerDialog.close();
+  prompt.focus();
+  return true;
+}
 get<HTMLFormElement>("provider-form").onsubmit = event => {
   event.preventDefault();
   const input = (id: string) => get<HTMLInputElement>(id);
   void action(async () => {
-    await api.saveProvider({ protocol: input("protocol").value, base_url: input("endpoint").value, model: input("model").value, context_window: Number(input("window").value), key: input("api-key").value });
-    input("api-key").value = "";
-    await refreshProvider();
-    providerMessage("Provider saved. Open a project and send a message to check the connection.");
+    const save = get<HTMLButtonElement>("save-provider");
+    if (save.disabled) return;
+    save.disabled = true;
+    try {
+      await api.saveProvider({ protocol: input("protocol").value, base_url: input("endpoint").value, model: input("model").value, context_window: Number(input("window").value), key: input("api-key").value });
+      input("api-key").value = "";
+      if (!await resumeAfterProvider()) providerMessage("Provider saved. Send a message to check the connection.");
+    } finally {
+      save.disabled = false;
+    }
   }, providerMessage)();
 };
-get("engine-settings").onclick = action(async () => { await api.saveProvider({ protocol: "" }); await refreshProvider(); }, providerMessage);
+get("engine-settings").onclick = action(async () => { await api.saveProvider({ protocol: "" }); await resumeAfterProvider(); }, providerMessage);
 function login(switchAccount: boolean) {
   return action(async () => {
     get("cancel-login").hidden = false;
     providerMessage("Complete sign-in in your default browser, then return here.");
-    try { await api.login(switchAccount); await refreshProvider(); }
+    try { await api.login(switchAccount); await resumeAfterProvider(); }
     finally {
       get("cancel-login").hidden = true;
       get("auth-label").hidden = true;
@@ -583,11 +671,17 @@ function terminalPanel() {
       get("dock-toggle").setAttribute("aria-pressed",String(opened));
       get("terminal-split").setAttribute("aria-pressed",String(split));
       get("terminal-count").textContent = count ? "Terminal · " + count : "Terminal";
+      get<HTMLButtonElement>("terminal-find").disabled = count === 0;
+      get<HTMLButtonElement>("terminal-rename").disabled = count === 0;
     }, error => announce(errorText(error)));
     terminalDock.configure(prefs.theme,prefs.font_size);
     return terminalDock;
   }).catch(error => { terminalLoading = undefined; throw error; });
   return terminalLoading;
+}
+
+function openProjectTerminal(path: string) {
+  return action(async () => (await terminalPanel()).add(path,prefs.shell));
 }
 
 const openTerminal = action(async () => {
@@ -697,6 +791,51 @@ get<HTMLFormElement>("rename-form").onsubmit = event => {
   persist();
 };
 
+const attentionDialog = get<HTMLDialogElement>("attention-dialog");
+const attentionList = get("attention-list");
+
+function waitingTabs() {
+  return [...tabs.values()].filter(tab => tab.input || tab.recovery);
+}
+
+function showAttention() {
+  if (!attentionDialog.open) attentionDialog.showModal();
+  drawAttention();
+  attentionList.querySelector("button")?.focus();
+}
+
+function drawAttention() {
+  const waiting = waitingTabs();
+  const control = get("attention");
+  control.hidden = !waiting.length;
+  const summary = waiting.length === 1 ? "1 session needs input" : waiting.length + " sessions need input";
+  const live = get("attention-live");
+  if (live.textContent !== summary) live.textContent = summary;
+  control.setAttribute("aria-label", summary);
+  get("attention-count").textContent = "Needs input · " + waiting.length;
+  if (!attentionDialog.open) return;
+  const focused = (document.activeElement as HTMLElement | null)?.dataset.session;
+  const rows = waiting.map(tab => {
+    const reason = tab.recovery ? "Recovery review" : tab.input?.kind === "question" ? "Question" : "Approval";
+    const row = button("", () => {
+      attentionDialog.close();
+      setActive(tab.session.id);
+      get("challenge").focus();
+    },"attention-row");
+    row.dataset.session = tab.session.id;
+    row.title = tab.session.project;
+    const names = element("span","","attention-label");
+    names.append(element("strong",sessionLabel(tab.session)),element("small",tab.session.project));
+    row.append(icon("alert"),names,element("span",reason,"attention-kind"));
+    return row;
+  });
+  attentionList.replaceChildren(...(rows.length ? rows : [element("p","No pending approvals or questions.","muted")]));
+  if (focused) (rows.find(row => row.dataset.session === focused) ?? get("close-attention")).focus();
+}
+
+get("attention").onclick = showAttention;
+get("close-attention").onclick = () => attentionDialog.close();
+
 type Command = { label: string; detail?: string; glyph: string; run: () => void };
 const palette = get<HTMLDialogElement>("palette-dialog");
 const query = get<HTMLInputElement>("palette-query");
@@ -727,6 +866,7 @@ function getCommands(): Command[] {
     {label:"Provider settings", glyph:"settings", run:() => get("provider").click()},
     {label:"Check for updates", glyph:"arrow", run:() => get("updates").click()},
   ];
+  if (waitingTabs().length) candidates.push({label:"Review sessions needing input",glyph:"alert",run:showAttention});
   if (tabs.has(active)) {
     candidates.push({label:"Rename current session",glyph:"edit",run:renameSession});
     candidates.push({label:"Close current session tab",glyph:"close",run:() => closeTab(tabs.get(active)!)});
@@ -735,12 +875,20 @@ function getCommands(): Command[] {
     candidates.push({label:prefs.pins.includes(project) ? "Unpin current project" : "Pin current project",glyph:"pin",run:() => togglePin(project)});
     candidates.push({label:"Remove current project from recents",glyph:"close",run:forget});
   }
-  if (terminalDock) {
+  if (terminalDock?.entries().length) {
+    candidates.push({label:"Find in active terminal",glyph:"search",run:() => terminalDock?.find()});
+    candidates.push({label:"Rename active terminal",glyph:"edit",run:() => terminalDock?.rename()});
+    for (const terminal of terminalDock.entries()) {
+      candidates.push({label:"Switch to " + terminal.title, detail:terminal.project + (terminal.ended ? " · Exited" : ""), glyph:"terminal",run:() => terminalDock?.select(terminal.id)});
+    }
     candidates.push({label:"Copy terminal selection",glyph:"terminal",run:action(() => terminalDock!.copy())});
     candidates.push({label:"Paste into active terminal",glyph:"terminal",run:action(() => terminalDock!.paste())});
     candidates.push({label:"Clear terminal scrollback",glyph:"terminal",run:() => terminalDock?.clear()});
   }
-  for (const path of projectPaths()) candidates.push({label:"Open " + nameOf(path), detail:path, glyph:"folder",run:() => {void openProject(path);}});
+  for (const path of projectPaths()) {
+    candidates.push({label:"Open " + nameOf(path), detail:path, glyph:"folder",run:() => {void openProject(path);}});
+    candidates.push({label:"Open terminal in " + nameOf(path), detail:path, glyph:"terminal",run:openProjectTerminal(path)});
+  }
   for (const tab of tabs.values()) candidates.push({label:sessionLabel(tab.session),detail:nameOf(tab.session.project),glyph:"session",run:() => setActive(tab.session.id)});
   return candidates;
 }
@@ -769,8 +917,10 @@ function showPalette() {
   selectedCommand = 0;
   palette.showModal();
   drawPalette();
+  query.setAttribute("aria-expanded","true");
   query.focus();
 }
+palette.addEventListener("close", () => query.setAttribute("aria-expanded","false"));
 get("palette").onclick = showPalette;
 query.oninput = () => { selectedCommand = 0; drawPalette(); };
 query.onkeydown = event => {
@@ -796,11 +946,13 @@ document.addEventListener("keydown", event => {
   const key = event.key.toLowerCase();
   const inTerminal = event.target instanceof HTMLElement && !!event.target.closest(".xterm");
   if (inTerminal && !mac && !event.shiftKey) return;
-  if (document.querySelector("dialog[open]") && !(key === "k" && palette.open)) return;
+  const paletteKey = key === "k" || (key === "p" && event.shiftKey);
+  if (document.querySelector("dialog[open]") && !(paletteKey && palette.open)) return;
   let command: (() => void) | undefined;
-  if (key === "k") command = showPalette;
+  if (paletteKey) command = showPalette;
   if (key === "o" && !event.shiftKey) command = pick;
   if (key === "t" && event.shiftKey) command = openTerminal;
+  if (key === "f" && terminalDock && (inTerminal || event.target === get("terminal-query"))) command = () => terminalDock?.find();
   if (key === "," && !event.shiftKey) command = showSettings;
   if (!command) return;
   event.preventDefault();
@@ -846,7 +998,7 @@ void action(async () => {
         return;
       }
       const { checkWorkspace } = await import("./workspace-check");
-      const state = await checkWorkspace(smoke,choose,open,refreshProvider,() => saved);
+      const state = await checkWorkspace(smoke,choose,open,() => saved);
       await api.report(JSON.stringify({step:"workspace-passed",theme:state.theme,session:state.active}),true);
     } catch (err) {
       await api.report(JSON.stringify({step:"failed",error:errorText(err)}),true);
