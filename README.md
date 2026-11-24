@@ -1,6 +1,6 @@
-# GoHarness Desktop
+# GoHarness Desktop Beta
 
-A standalone desktop app for GoHarness with a Wails v3 host, one native webview, and a TypeScript UI. The installers include GoHarness. Users launch the app from their OS launcher and can use it without a Go installation or a GoHarness command on PATH.
+A standalone beta desktop app for GoHarness with a Wails v3 host, one native webview, and a TypeScript UI. The installers include GoHarness. Users launch the app from their OS launcher and can use it without a Go installation or a GoHarness command on PATH.
 
 - [Website and benchmarks](https://goh-website-three.vercel.app)
 - [Public downloads](https://goh-website-three.vercel.app/downloads/#desktop)

@@ -1,5 +1,7 @@
 # Release and signing
 
+GoHarness Desktop is in beta. The stable channel is the main distribution channel for this beta.
+
 ## Preflight and promotion
 
 1. Use a secret-free `desktop-dry-run` environment. Limit `mac-signing`, `windows-signing`, `linux-release` and `desktop-publish` for publishing from the default branch.

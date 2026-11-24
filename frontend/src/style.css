@@ -64,7 +64,7 @@ button svg { pointer-events: none; }
 .eyebrow, .section-title { color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .095em; font-size: .73rem; }
 kbd { color: var(--quiet); font: .7rem var(--mono); border: 1px solid var(--rule); border-radius: 4px; padding: 3px 5px; background: var(--sidebar); white-space: nowrap; }
 .top {
-  min-height: 57px; display: grid; grid-template-columns: minmax(165px, 1fr) minmax(190px, 340px) minmax(140px, 1fr);
+  min-height: 57px; display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(190px, 340px) minmax(140px, 1fr);
   gap: 10px; align-items: center; padding: 8px 16px; background: var(--sidebar); border-bottom: 1px solid var(--rule);
 }
 .brand { display: flex; align-items: center; gap: 9px; white-space: nowrap; }
@@ -268,7 +268,7 @@ dialog p { color: var(--muted); overflow-wrap: anywhere; margin-bottom: 8px; }
 .use-engine-settings { margin-top: 10px; }
 @media (max-width: 760px) {
   .attention-button { font-size: .79rem; }
-  .top { grid-template-columns: minmax(137px, 1fr) minmax(145px, 1.2fr) minmax(96px, auto); }
+  .top { grid-template-columns: minmax(max-content, 1fr) minmax(145px, 1.2fr) minmax(96px, auto); }
 }
 .terminal-search { display:flex; gap:5px; align-items:center; padding:4px 8px; border-bottom:1px solid var(--subtle-rule); background:var(--surface); }
 .terminal-search input { min-width:0; width:min(260px, 55%); padding:.25rem .48rem; }

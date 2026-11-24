@@ -135,12 +135,13 @@ def main():
         if not existing["draft"] or existing["target_commitish"] != args.commit:
             raise RuntimeError("existing release is not this commit's draft")
     else:
+        title = f"GoHarness Desktop Beta {args.version}"
         with tempfile.NamedTemporaryFile("w",suffix=".md") as notes:
-            notes.write(f"GoHarness Desktop {args.version}\n\nEngine: {args.engine_tag}\n\n"
+            notes.write(f"{title}\n\nEngine: {args.engine_tag}\n\n"
                         "See BUNDLED_ENGINES.json for exact upstream inputs and SHA256SUMS for downloads.\n")
             notes.flush()
             cmd = ["gh","release","create",tag,"--repo",repo,"--draft","--latest=false",
-                   "--target",args.commit,"--title",f"GoHarness Desktop {args.version}",
+                   "--target",args.commit,"--title",title,
                    "--notes-file",notes.name]
             if preview:
                 cmd.append("--prerelease")
