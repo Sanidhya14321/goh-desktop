@@ -2,7 +2,7 @@
 
 ## Preflight and promotion
 
-1. Put this repository on GitHub under its own `goh-desktop` project. Enable Actions and create an unprotected, secret-free `desktop-dry-run` environment. Protect `mac-signing`, `windows-signing`, `linux-release` and `desktop-publish` for publishing from the default branch.
+1. Use a secret-free `desktop-dry-run` environment. Limit `mac-signing`, `windows-signing`, `linux-release` and `desktop-publish` for publishing from the default branch.
 2. Run **Native build and smoke** for the exact engine tag. Its matrix installs and smokes macOS Apple Silicon and Intel, Ubuntu `amd64` and `arm64`, and Windows `amd64` and `arm64`. The macOS and Windows jobs also exercise the pinned update fixture. Review native results before distributing each target.
 3. Dispatch **Desktop release** with the exact stable engine tag and `dry_run: true`. It builds development assets, verifies the required five-target inventory, generates test-signed update metadata, and uploads Actions artifacts. It leaves GitHub Releases untouched.
 4. Configure signing and dispatch from the default branch with `dry_run: false`. The workflow uses desktop version `0.1.<run_number>`. It verifies the exact upstream release status, rejects prerelease tags, checks every engine asset against upstream SHA-256, and requires a GitHub attestation from the upstream release workflow for that tag. The original engine asset digests and the final bundled engine digest are captured in `BUNDLED_ENGINES.json` after universal assembly and code signing.
@@ -59,10 +59,10 @@ Signed-By: /etc/apt/keyrings/goh-desktop.gpg
 
 Run `sudo apt update && sudo apt install goh-desktop`, then upgrade through APT. Keep preview in a separate suite with the `goh-desktop-preview` package name. APT signing uses its own key. Automatic in-app Linux replacement would require a separately tested AppImage channel with a user-writable install and the engine inside its signed payload. Phase 1 uses APT. [Ubuntu package guidance](https://documentation.ubuntu.com/security/common-mistakes/deb-download-archive/)
 
-## Upstream release hook
+## Automatic release checks
 
-The [patch](upstream-desktop-hook.patch) keeps the upstream checkout unchanged until it is applied. It sets `--prerelease --latest=false` for nonstable tags and adds a dispatch job after the upstream publication job succeeds. Audit upstream GitHub Releases before enabling it. Older release candidates were created by a workflow that passed `--latest` for every matching tag. Mark any affected prereleases correctly and confirm upstream Latest points to a stable tag.
+The [Desktop release workflow](../.github/workflows/release.yml) checks the latest public stable [GoHarness engine release](https://github.com/Sanidhya14321/goh/releases/latest) every six hours. It resolves the exact tag before packaging. When the engine advances within the supported 1.x range, a successful scheduled dry run updates `engine-version.txt`. Pull requests and pushes use that verified pin for native CI.
 
-1. Create a GitHub App with **Actions write** repository permission. Install it only on the desktop repository. Set `DESKTOP_RELEASE_APP_ID`, `DESKTOP_REPO_OWNER` and `DESKTOP_RELEASE_BRANCH` in upstream repository variables, plus `DESKTOP_RELEASE_APP_PRIVATE_KEY` as an upstream secret.
-2. From the upstream root, use `git apply --check ../goh-desktop/docs/upstream-desktop-hook.patch` and then `git apply ../goh-desktop/docs/upstream-desktop-hook.patch`. Review and merge the workflow with dispatch still disabled.
-3. Complete a manual desktop dry run and verify the production environments. Set upstream `DESKTOP_DISPATCH_ENABLED=true` afterward. Each dispatch uses a short-lived installation token issued for `goh-desktop` and requests a stable build from the desktop default branch. Both repositories verify the exact upstream stable tag. [GitHub workflow dispatch](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event)
+Set the repository Actions variable `DESKTOP_AUTO_PUBLISH=true` after configuring and verifying the signing environments above. Scheduled runs then publish signed stable Desktop releases when the public Desktop release needs a newer engine. The publisher checks the existing release before promotion and rejects engine downgrades. A manual dispatch can pick an exact stable tag or use the latest stable engine.
+
+The [website’s GitHub workflow](https://github.com/Sanidhya14321/goh-website/blob/main/.github/workflows/sync-releases.yml) reads the public stable Desktop release and its recorded engine tag. It updates the live [download page](https://goh-website-three.vercel.app/downloads/#desktop) when the full installer set is published.

@@ -1,10 +1,12 @@
 name: Desktop release
+
 on:
+  schedule:
+    - cron: '37 */6 * * *'
   workflow_dispatch:
     inputs:
       engine_tag:
-        description: Exact upstream stable release tag (e.g. v1.1.0)
-        required: true
+        description: Exact stable engine tag (defaults to the latest stable engine)
         type: string
       channel:
         description: Desktop release channel
@@ -15,34 +17,86 @@ on:
         description: Build development assets and validate promotion without publishing
         default: true
         type: boolean
+
 permissions:
   contents: read
   attestations: read
+
+concurrency:
+  group: goh-desktop-release
+  cancel-in-progress: false
+
 jobs:
   plan:
     runs-on: ubuntu-24.04
     outputs:
+      engine_tag: ${{ steps.plan.outputs.engine_tag }}
       version: ${{ steps.plan.outputs.version }}
+      channel: ${{ steps.plan.outputs.channel }}
+      dry_run: ${{ steps.plan.outputs.dry_run }}
     steps:
-      - name: Validate release inputs
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Resolve and verify the published engine
         id: plan
         env:
-          ENGINE_TAG: ${{ inputs.engine_tag }}
+          ENGINE_REPO: Sanidhya14321/goh
+          REQUESTED_TAG: ${{ inputs.engine_tag }}
           GH_TOKEN: ${{ github.token }}
-          CHANNEL: ${{ inputs.channel }}
+          CHANNEL: ${{ inputs.channel || 'stable' }}
           DRY_RUN: ${{ inputs.dry_run }}
+          AUTO_PUBLISH: ${{ vars.DESKTOP_AUTO_PUBLISH }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          [[ "$ENGINE_TAG" =~ ^v1\.(1|[2-9]|[1-9][0-9]+)\.(0|[1-9][0-9]*)$ ]]
-          [[ "$CHANNEL" == stable || "$CHANNEL" == preview ]]
-          if [[ "$DRY_RUN" != true ]]; then
+          args=()
+          if [[ -n "$REQUESTED_TAG" ]]; then
+            [[ "$REQUESTED_TAG" =~ ^v1\.([1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+            args+=("$REQUESTED_TAG")
+          fi
+          tag="$(gh release view "${args[@]}" --repo "$ENGINE_REPO" --json tagName,isDraft,isPrerelease,publishedAt \
+            | jq -er 'select((.isDraft or .isPrerelease | not) and .publishedAt != null).tagName')"
+          if [[ ! "$tag" =~ ^v1\.([1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "The engine release $tag is outside the supported Desktop version range."
+            if [[ "$GITHUB_EVENT_NAME" == schedule ]]; then exit 0; fi
+            exit 1
+          fi
+
+          if [[ "$GITHUB_EVENT_NAME" == schedule ]]; then
+            pin="$(cat engine-version.txt)"
+            if [[ "$tag" != "$pin" && "$(printf '%s\n' "$tag" "$pin" | sort -V | tail -1)" == "$pin" ]]; then
+              echo "The upstream latest release $tag is older than the verified pin $pin."
+              exit 0
+            fi
+            DRY_RUN=true
+            if [[ "$AUTO_PUBLISH" == true ]]; then
+              DRY_RUN=false
+              latest_desktop="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isLatest,isDraft,isPrerelease \
+                --jq '.[] | select(.isLatest and (.isDraft or .isPrerelease | not)).tagName')"
+              if [[ -n "$latest_desktop" ]]; then
+                notes="$(gh release view "$latest_desktop" --repo "$GITHUB_REPOSITORY" --json body --jq '.body')"
+                if grep -qxF "Engine: $tag" <<<"$notes"; then
+                  echo "Desktop $latest_desktop already bundles $tag."
+                  if [[ "$tag" == "$pin" ]]; then exit 0; fi
+                  DRY_RUN=true
+                fi
+              fi
+            elif [[ "$tag" == "$pin" ]]; then
+              echo "$tag matches the Desktop engine pin. Signed auto-publishing is disabled."
+              exit 0
+            fi
+          fi
+
+          if [[ "$DRY_RUN" == false ]]; then
             [[ "$GITHUB_REF" == "refs/heads/$DEFAULT_BRANCH" ]]
           fi
-          gh release view "$ENGINE_TAG" --repo Sanidhya14321/goh --json tagName,isDraft,isPrerelease,publishedAt \
-            | jq -e --arg tag "$ENGINE_TAG" '.tagName == $tag and (.isDraft or .isPrerelease | not) and .publishedAt != null'
-          printf 'version=0.1.%s\n' "$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          [[ "$CHANNEL" == stable || "$CHANNEL" == preview ]]
+          printf 'engine_tag=%s\nversion=0.1.%s\nchannel=%s\ndry_run=%s\n' \
+            "$tag" "$GITHUB_RUN_NUMBER" "$CHANNEL" "$DRY_RUN" >> "$GITHUB_OUTPUT"
+
   package:
     needs: plan
+    if: needs.plan.outputs.engine_tag != ''
     strategy:
       fail-fast: false
       matrix:
@@ -60,19 +114,17 @@ jobs:
     with:
       runner: ${{ matrix.runner }}
       target: ${{ matrix.target }}
-      engine_tag: ${{ inputs.engine_tag }}
+      engine_tag: ${{ needs.plan.outputs.engine_tag }}
       version: ${{ needs.plan.outputs.version }}
-      channel: ${{ inputs.channel }}
-      sign: ${{ !inputs.dry_run }}
+      channel: ${{ needs.plan.outputs.channel }}
+      sign: ${{ needs.plan.outputs.dry_run == 'false' }}
+
   publish:
     needs: [plan, package]
     runs-on: ubuntu-24.04
-    concurrency:
-      group: goh-desktop-promotion
-      cancel-in-progress: false
     permissions:
       contents: write
-    environment: ${{ inputs.dry_run && 'desktop-dry-run' || 'desktop-publish' }}
+    environment: ${{ needs.plan.outputs.dry_run == 'true' && 'desktop-dry-run' || 'desktop-publish' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -88,18 +140,45 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          ENGINE_TAG: ${{ inputs.engine_tag }}
+          ENGINE_TAG: ${{ needs.plan.outputs.engine_tag }}
           VERSION: ${{ needs.plan.outputs.version }}
-          CHANNEL: ${{ inputs.channel }}
-          DRY_RUN: ${{ inputs.dry_run }}
+          CHANNEL: ${{ needs.plan.outputs.channel }}
+          DRY_RUN: ${{ needs.plan.outputs.dry_run }}
           DESKTOP_UPDATE_SEED: ${{ secrets.DESKTOP_UPDATE_SEED }}
           DESKTOP_UPDATE_PUBLIC_KEY: ${{ vars.DESKTOP_UPDATE_PUBLIC_KEY }}
         run: |
+          if [[ "$GITHUB_EVENT_NAME" == schedule ]]; then
+            latest="$(gh release view --repo Sanidhya14321/goh --json tagName --jq '.tagName')"
+            if [[ "$latest" != "$ENGINE_TAG" ]]; then
+              echo "The upstream latest release changed during packaging, from $ENGINE_TAG to $latest." >&2
+              exit 1
+            fi
+          fi
           opts=()
-          if [[ "$DRY_RUN" != true ]]; then opts+=(--publish); fi
+          if [[ "$DRY_RUN" == false ]]; then opts+=(--publish); fi
           python3 scripts/release.py --artifacts native --output metadata --repo "$GITHUB_REPOSITORY" \
             --commit "$GITHUB_SHA" --version "$VERSION" --engine-tag "$ENGINE_TAG" --channel "$CHANNEL" "${opts[@]}"
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-release-metadata
           path: metadata/
+
+  update-pin:
+    needs: [plan, publish]
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Record the verified engine
+        env:
+          ENGINE_TAG: ${{ needs.plan.outputs.engine_tag }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          printf '%s\n' "$ENGINE_TAG" > engine-version.txt
+          git add engine-version.txt
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "Verify GoHarness engine $ENGINE_TAG for Desktop"
+          git push origin "HEAD:refs/heads/$DEFAULT_BRANCH"

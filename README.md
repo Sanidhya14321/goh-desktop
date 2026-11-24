@@ -2,6 +2,12 @@
 
 A standalone desktop app for GoHarness with a Wails v3 host, one native webview, and a TypeScript UI. The installers include GoHarness. Users launch the app from their OS launcher and can use it without a Go installation or a GoHarness command on PATH.
 
+- [Website and benchmarks](https://goh-website-three.vercel.app)
+- [Public downloads](https://goh-website-three.vercel.app/downloads/#desktop)
+- [GoHarness engine and CLI](https://github.com/Sanidhya14321/goh)
+
+See [engine-version.txt](engine-version.txt) for the verified development engine pin and the Desktop release notes for the engine bundled in a published installer.
+
 ## Work in several projects
 
 1. Launch **GoHarness Desktop** from the OS launcher. On macOS, drag the app from the DMG into Applications before opening it.
@@ -50,18 +56,20 @@ On this workspace’s Mac, the upstream checkout already contains the required G
 
 ### Build and test a development package
 
-Run the pair of commands for your target with `v1.1.0` as the upstream release and `0.1.6` as the desktop version.
+The following examples read the upstream tag from `engine-version.txt` and use `0.1.6` as a local development version.
 
 ```sh
+engine_tag="$(cat engine-version.txt)"
+
 # macOS universal
-python3 scripts/fetch-engine.py v1.1.0 darwin-universal .cache/engine-mac
-python3 scripts/package.py --target darwin-universal --engine .cache/engine-mac --engine-tag v1.1.0 --version 0.1.6 --output out/dev-mac
+python3 scripts/fetch-engine.py "$engine_tag" darwin-universal .cache/engine-mac
+python3 scripts/package.py --target darwin-universal --engine .cache/engine-mac --engine-tag "$engine_tag" --version 0.1.6 --output out/dev-mac
 python3 scripts/smoke.py out/dev-mac/goh-desktop-macos-universal.dmg --launcher --mode measure
 
 # Ubuntu 24.04 or later, use amd64 or arm64 to match the machine
 arch="$(dpkg --print-architecture)"
-python3 scripts/fetch-engine.py v1.1.0 "linux-$arch" .cache/engine-linux
-python3 scripts/package.py --target "linux-$arch" --engine .cache/engine-linux --engine-tag v1.1.0 --version 0.1.6 --output out/dev-linux
+python3 scripts/fetch-engine.py "$engine_tag" "linux-$arch" .cache/engine-linux
+python3 scripts/package.py --target "linux-$arch" --engine .cache/engine-linux --engine-tag "$engine_tag" --version 0.1.6 --output out/dev-linux
 sudo apt install "./out/dev-linux/goh-desktop-ubuntu-$arch.deb"
 xvfb-run -a dbus-run-session -- python3 scripts/smoke.py "out/dev-linux/goh-desktop-ubuntu-$arch.deb" --installed --launcher --mode measure
 ```
@@ -69,8 +77,9 @@ xvfb-run -a dbus-run-session -- python3 scripts/smoke.py "out/dev-linux/goh-desk
 ```powershell
 # Windows PowerShell, set $arch to amd64 or arm64
 $arch = "amd64"
-python scripts/fetch-engine.py v1.1.0 "windows-$arch" .cache/engine-windows
-python scripts/package.py --target "windows-$arch" --engine .cache/engine-windows --engine-tag v1.1.0 --version 0.1.6 --output out/dev-windows
+$engine_tag = (Get-Content engine-version.txt -Raw).Trim()
+python scripts/fetch-engine.py "$engine_tag" "windows-$arch" .cache/engine-windows
+python scripts/package.py --target "windows-$arch" --engine .cache/engine-windows --engine-tag "$engine_tag" --version 0.1.6 --output out/dev-windows
 python scripts/smoke.py "out/dev-windows/goh-desktop-windows-$arch-installer.exe"
 ```
 
@@ -86,4 +95,4 @@ Desktop settings and journals live under the OS user config directory in `GoHarn
 
 The Go host launches the engine by an absolute path and verifies its reported version. Each helper binds `127.0.0.1:0` and receives a fresh bearer token. The host authenticates `GET /v1/info`, checks the fixed project and session directory, and handles the NDJSON stream and input routes. The webview gets batched display events and the bounded recent portion of durable journals. It has no helper address or token. Exit cancels active streams and stops helpers.
 
-The [existing-app research and UX plan](reports/Desktop%20workflow%20usability.md) explains the usability changes, and the [usability verification](docs/USABILITY-VERIFICATION.md) records the installed tests. The [workspace redesign verification](docs/WORKSPACE.md) records the latest checks. The repository also includes the [release and signing runbook](docs/RELEASE.md), the [upstream dispatch patch](docs/upstream-desktop-hook.patch), and the [verification and performance report](docs/VERIFICATION.md).
+The [existing-app research and UX plan](reports/Desktop%20workflow%20usability.md) explains the usability changes, and the [usability verification](docs/USABILITY-VERIFICATION.md) records the installed tests. The [workspace redesign verification](docs/WORKSPACE.md) records the latest checks. The repository also includes the [release and signing runbook](docs/RELEASE.md), and the [verification and performance report](docs/VERIFICATION.md).

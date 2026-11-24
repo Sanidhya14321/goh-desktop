@@ -6,15 +6,30 @@ on:
   workflow_dispatch:
     inputs:
       engine_tag:
-        description: Exact published stable engine tag
-        default: v1.1.0
+        description: Exact published stable engine tag (defaults to the verified pin)
         type: string
 permissions:
   contents: read
   attestations: read
   id-token: write
 jobs:
+  engine:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.engine.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - id: engine
+        env:
+          REQUESTED_TAG: ${{ inputs.engine_tag }}
+        run: |
+          tag="${REQUESTED_TAG:-$(cat engine-version.txt)}"
+          [[ "$tag" =~ ^v1\.([1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
   build:
+    needs: engine
     strategy:
       fail-fast: false
       matrix:
@@ -29,7 +44,7 @@ jobs:
     with:
       runner: ${{ matrix.runner }}
       target: ${{ matrix.target }}
-      engine_tag: ${{ inputs.engine_tag || 'v1.1.0' }}
+      engine_tag: ${{ needs.engine.outputs.tag }}
       channel: dev
       version: 0.1.6
       sign: false
